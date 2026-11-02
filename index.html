@@ -1,0 +1,2634 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>回路残响 · 灰盒手感原型</title>
+<style>
+  html,body{margin:0;height:100%;background:#111;overflow:hidden;font-family:system-ui,"PingFang SC","Microsoft YaHei",sans-serif;color:#ddd;touch-action:none;-webkit-user-select:none;user-select:none}
+  canvas{display:block;width:100vw;height:100vh}
+  #panel{position:fixed;top:8px;right:8px;width:300px;max-height:calc(100vh - 16px);overflow:auto;background:rgba(18,19,24,.94);border:1px solid #3a3d46;border-radius:8px;padding:8px 12px 12px;font-size:12px;display:none;z-index:5}
+  #panel h3{margin:4px 0 8px;font-size:14px;color:#fff}
+  #panel h3 small{color:#888;font-weight:normal;margin-left:6px}
+  #panel label{display:grid;grid-template-columns:118px 1fr 44px;align-items:center;gap:6px;margin:3px 0}
+  #panel input{width:100%}
+  #panel b{font-weight:normal;color:#8fd3ff;text-align:right;font-variant-numeric:tabular-nums}
+  #panel .grp{color:#9aa;margin:10px 0 2px;border-top:1px solid #333;padding-top:6px}
+  #panel .btns{display:flex;gap:6px;margin-top:10px}
+  #panel button{flex:1;background:#2b2f3a;color:#ddd;border:1px solid #4a4f5c;border-radius:5px;padding:6px;cursor:pointer}
+  #panel button:hover{background:#363b48}
+  #start{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(10,10,14,.72);z-index:6;cursor:pointer}
+  #start .box{text-align:center;max-width:520px;padding:20px}
+  #start h1{margin:0 0 6px;font-size:28px;color:#fff;letter-spacing:2px}
+  #start p{color:#aab;margin:4px 0;line-height:1.7;font-size:14px}
+  #start .k{display:inline-block;background:#2b2f3a;border:1px solid #4a4f5c;border-radius:4px;padding:0 6px;margin:0 2px;color:#fff;font-size:12px}
+  #start .go{margin-top:16px;color:#4fc3f7;font-size:16px;animation:bl 1.2s infinite}
+  @keyframes bl{50%{opacity:.35}}
+  #touch{position:fixed;inset:0;pointer-events:none;display:none;z-index:4}
+  #pad{position:absolute;left:24px;bottom:24px;width:150px;height:150px;border-radius:50%;background:rgba(255,255,255,.07);border:2px solid rgba(255,255,255,.15);pointer-events:auto}
+  #knob{position:absolute;left:50%;top:50%;width:56px;height:56px;margin:-28px 0 0 -28px;border-radius:50%;background:rgba(255,255,255,.22)}
+  #tbtns{position:absolute;right:20px;bottom:24px;display:grid;grid-template-columns:repeat(3,72px);gap:12px;pointer-events:auto}
+  .tb{width:72px;height:72px;border-radius:50%;background:rgba(255,255,255,.1);border:2px solid rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center;font-size:18px;color:#fff}
+  .tb.on{background:rgba(79,195,247,.45)}
+  #tbtns .tb:nth-child(3){transform:translateY(-36px)}
+  #tchip{position:absolute;right:20px;bottom:150px;width:52px;height:52px;font-size:15px;pointer-events:auto}
+  #tmag{position:absolute;right:84px;bottom:150px;width:52px;height:52px;font-size:15px;pointer-events:auto}
+  #tset{position:absolute;right:12px;top:12px;width:40px;height:40px;border-radius:8px;font-size:18px;pointer-events:auto}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="panel"></div>
+<div id="touch">
+  <div id="pad"><div id="knob"></div></div>
+  <div id="tbtns"><div class="tb" data-a="dash">冲</div><div class="tb" data-a="shoot">射</div><div class="tb" data-a="jump">跳</div></div>
+  <div class="tb" id="tset">⚙</div>
+  <div class="tb" id="tchip">冰</div>
+  <div class="tb" id="tmag">磁</div>
+</div>
+<div id="start"><div class="box">
+  <h1>回路残响 · 灰盒原型</h1>
+  <p>移动 <span class="k">←→</span>/<span class="k">A D</span>　跳跃 <span class="k">Z</span>/<span class="k">K</span>/<span class="k">空格</span>（长按跳得更高）</p>
+  <p>射击 <span class="k">X</span>/<span class="k">J</span>（长按蓄力）　冲刺 <span class="k">C</span>/<span class="k">L</span>/<span class="k">Shift</span></p>
+  <p>贴墙按跳 = 蹬墙跳　冲刺中起跳 = 冲刺跳（保留速度）　<span class="k">↓</span>+跳 = 穿过薄平台</p>
+  <p>打败 Boss 拿芯片：<span class="k">Q</span> 霜钟（水 ⇄ 冰）　<span class="k">E</span> 磁暴（吸附金属倒着走）</p>
+  <p>测试用：数字键 <span class="k">1</span>~<span class="k">0</span> 直接传送到各存档点</p>
+  <p><span class="k">Tab</span> 打开调参面板　<span class="k">R</span> 回到存档点　<span class="k">T</span> 从头开始　<span class="k">M</span> 静音　支持手柄</p>
+  <div class="go">点击或按任意键开始</div>
+</div></div>
+<script>
+'use strict';
+// =====================================================================
+//  常量与可调参数
+// =====================================================================
+const T = 16;                 // 图块尺寸（像素）
+const STEP = 1 / 120;         // 固定物理步长：120Hz，与显示刷新率无关
+const VIEW_H = 240;           // 视野高度（世界像素）
+const MAXHP = 16;
+
+const PARAM_DEFS = [
+  ['g', '地面移动'],
+  ['runSpeed', '奔跑速度', 60, 300, 5],
+  ['groundAccel', '地面加速度', 300, 6000, 50],
+  ['groundDecel', '地面摩擦(停下)', 300, 6000, 50],
+  ['turnAccel', '转身加速度', 300, 9000, 50],
+  ['g', '跳跃与空中'],
+  ['jumpHeight', '最大跳跃高度px', 20, 140, 1],
+  ['gravity', '重力', 500, 4000, 25],
+  ['fallMult', '下落重力倍数', 1, 3, 0.05],
+  ['jumpCut', '松键截断系数', 0.1, 1, 0.05],
+  ['apexHang', '顶点滞空重力', 0.2, 1, 0.05],
+  ['apexThreshold', '顶点判定速度', 0, 150, 5],
+  ['maxFall', '最大下落速度', 150, 1000, 10],
+  ['airAccel', '空中加速度', 100, 5000, 50],
+  ['airDecel', '空中阻力', 0, 3000, 25],
+  ['coyote', '土狼时间 s', 0, 0.3, 0.01],
+  ['buffer', '跳跃缓冲 s', 0, 0.3, 0.01],
+  ['cornerCorrect', '撞角修正 px', 0, 10, 1],
+  ['g', '冲刺与墙'],
+  ['dashSpeed', '冲刺速度', 150, 600, 10],
+  ['dashTime', '冲刺时长 s', 0.05, 0.5, 0.01],
+  ['wallSlide', '滑墙速度', 20, 300, 5],
+  ['wallJumpX', '蹬墙水平速度', 50, 400, 5],
+  ['wallJumpHeight', '蹬墙跳高度px', 10, 120, 1],
+  ['wallLock', '蹬墙后控制削弱 s', 0, 0.4, 0.01],
+  ['g', '镜头与打击感'],
+  ['camLerp', '镜头跟随速度', 1, 25, 0.5],
+  ['lookahead', '镜头前瞻 px', 0, 120, 2],
+  ['hitstop', '顿帧强度', 0, 3, 0.1],
+  ['shake', '震屏强度', 0, 3, 0.1],
+];
+const DEFAULTS = {
+  runSpeed: 150, groundAccel: 1800, groundDecel: 2400, turnAccel: 3600,
+  jumpHeight: 66, gravity: 1500, fallMult: 1.65, jumpCut: 0.4, apexHang: 0.5, apexThreshold: 45,
+  maxFall: 480, airAccel: 1250, airDecel: 450, coyote: 0.1, buffer: 0.12, cornerCorrect: 6,
+  dashSpeed: 300, dashTime: 0.24, wallSlide: 95, wallJumpX: 150, wallJumpHeight: 60, wallLock: 0.1,
+  camLerp: 9, lookahead: 40, hitstop: 1, shake: 1,
+};
+let P = Object.assign({}, DEFAULTS);
+try { Object.assign(P, JSON.parse(localStorage.getItem('ec_params_v2') || '{}')); } catch (e) {}
+function saveParams() { try { localStorage.setItem('ec_params_v2', JSON.stringify(P)); } catch (e) {} }
+
+// =====================================================================
+//  工具函数
+// =====================================================================
+const lerp = (a, b, t) => a + (b - a) * t;
+const clamp = (v, a, b) => v < a ? a : v > b ? b : v;
+const approach = (v, target, delta) => v < target ? Math.min(v + delta, target) : Math.max(v - delta, target);
+const sign = v => v > 0 ? 1 : v < 0 ? -1 : 0;
+const rand = (a, b) => a + Math.random() * (b - a);
+const overlap = (a, b) => a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+
+// =====================================================================
+//  关卡（用代码搭建，方便修改）
+//  '#' 实心  '-' 单向平台  '^' 尖刺
+// =====================================================================
+const W = 392, H = 26;
+const map = [...Array(H)].map(() => Array(W).fill('.'));
+function fill(x, y, w, h, c = '#') {
+  for (let j = y; j < y + h; j++) for (let i = x; i < x + w; i++)
+    if (i >= 0 && i < W && j >= 0 && j < H) map[j][i] = c;
+}
+const spawns = [];   // [类型, 图块x, 图块y]
+const signs = [];    // 教学提示牌
+const checkpoints = [];
+const sign_ = (tx, ty, text) => signs.push({ x: tx * T, y: ty * T, text });
+
+// --- 第1段：起点与基础移动 ---
+fill(0, 22, W, 4);
+fill(0, 0, 1, 22);
+sign_(3, 17, '← → 移动　Z 跳跃（长按更高）');
+fill(7, 18, 4, 1, '-');
+sign_(7, 15, '↓ + 跳 穿过薄平台');
+fill(14, 21, 3, 1); fill(17, 20, 3, 2); fill(20, 19, 3, 3);
+sign_(25, 17, 'X 射击　长按蓄力后松开');
+spawns.push(['walker', 28, 21]);
+checkpoints.push({ x: 3 * T, y: 22 * T });
+// --- 第2段：坑与尖刺 ---
+fill(32, 22, 5, 4, '.');
+sign_(31, 18, 'C 冲刺');
+fill(40, 22, 9, 1, '.'); fill(40, 22, 9, 1, '^');
+fill(43, 19, 3, 3);
+spawns.push(['flyer', 46, 15]);
+spawns.push(['hopper', 51, 21]);
+// --- 第3段：蹬墙跳竖井 ---
+checkpoints.push({ x: 53 * T, y: 22 * T });
+fill(56, 7, 2, 11);           // 竖井左墙（下方留通道进入）
+fill(63, 9, 24, 13);          // 竖井右侧大平台
+fill(58, 16, 2, 1, '-'); fill(61, 13, 2, 1, '-');
+sign_(57, 20, '贴墙按跳 = 蹬墙跳 ↑');
+spawns.push(['walker', 70, 8]);
+spawns.push(['turret', 80, 8]);
+// --- 第4段：单向阶梯与低矮通道 ---
+checkpoints.push({ x: 90 * T, y: 22 * T });
+fill(93, 19, 4, 1, '-'); fill(98, 16, 4, 1, '-'); fill(103, 13, 4, 1, '-');
+fill(108, 9, 10, 11);         // 低矮通道（下方只留两格高）
+spawns.push(['walker', 95, 21]);
+spawns.push(['flyer', 101, 10]);
+spawns.push(['hopper', 113, 21]);
+spawns.push(['flyer', 112, 5]);
+// --- 第5段：冲刺跳大坑 ---
+checkpoints.push({ x: 120 * T, y: 22 * T });
+sign_(119, 17, '冲刺中起跳 = 冲刺跳 →');
+fill(125, 22, 9, 4, '.');
+// --- 第6段：竞技场 ---
+fill(140, 18, 2, 4); fill(149, 15, 2, 7); fill(144, 12, 3, 1, '-');
+spawns.push(['turret', 140, 17]);
+spawns.push(['walker', 145, 21]);
+spawns.push(['flyer', 152, 12]);
+spawns.push(['hopper', 156, 21]);
+spawns.push(['turret', 149, 14]);
+// --- 第7段：水区（Boss 前，先让玩家熟悉水） ---
+sign_(165, 16, '水中：下落变慢，能跳得更高');
+fill(170, 22, 12, 3, '~');
+spawns.push(['flyer', 176, 15]);
+checkpoints.push({ x: 188 * T, y: 22 * T });
+// --- 第8段：霜钟守卫 Boss 房 ---
+const ROOM = { x0: 196, x1: 221, top: 8 };     // x0/x1 为两侧墙的图块列（含墙）
+fill(196, 0, 2, 18); fill(220, 0, 2, 18);     // 两侧墙，18~21 行是门洞
+fill(198, 0, 22, 8);                           // 天花板
+fill(202, 22, 4, 2, '~'); fill(212, 22, 4, 2, '~');   // 房间里的两个水池
+// --- 第9段：规则试炼（拿到芯片后） ---
+checkpoints.push({ x: 223 * T, y: 22 * T });
+sign_(223, 16, 'Q 切换规则芯片「霜钟」：水 ⇄ 冰');
+fill(228, 22, 14, 3, '~'); fill(228, 24, 14, 1, '^');   // 宽水池，池底尖刺
+sign_(243, 16, '关掉规则才能潜水通过 ↓');
+fill(250, 0, 3, 22);                           // 顶天立地的墙
+fill(247, 22, 9, 3, '~');                      // 墙下的水道
+// --- 第10段：磁暴区（Boss 2 前） ---
+checkpoints.push({ x: 262 * T, y: 22 * T });
+fill(268, 15, 10, 1, 'M');
+sign_(265, 12, '金属（有磁性）：拿到「磁暴」芯片后能吸上去');
+spawns.push(['flyer', 276, 12]);
+spawns.push(['walker', 284, 21]);
+fill(290, 19, 3, 3); spawns.push(['turret', 291, 18]);
+checkpoints.push({ x: 296 * T, y: 22 * T });
+// --- 第11段：磁暴裁缝 Boss 房 ---
+const ROOM2 = { x0: 300, x1: 325, top: 8 };
+fill(300, 0, 2, 18); fill(324, 0, 2, 18);
+fill(302, 0, 22, 7); fill(302, 7, 22, 1, 'M');        // 金属天花板
+fill(302, 8, 1, 6, 'M'); fill(323, 8, 1, 6, 'M');     // 两侧上方的金属墙
+// --- 第12段：磁暴试炼 + 双芯片组合 ---
+checkpoints.push({ x: 327 * T, y: 22 * T });
+sign_(327, 16, 'E 切换规则芯片「磁暴」：吸附金属');
+fill(330, 15, 16, 1, 'M');                            // 金属横梁
+fill(332, 22, 12, 4, '.');                            // 大坑
+checkpoints.push({ x: 346 * T, y: 22 * T });
+sign_(344, 12, '两块芯片同时开启：冰也会带磁性');
+fill(352, 0, 14, 16);                                 // 悬空岩体
+fill(352, 16, 14, 2, '~');                            // 悬在空中的水
+fill(355, 22, 11, 4, '.');                            // 大坑（冰下留 3 格落脚处）
+fill(W - 2, 0, 2, 22);
+const GOAL = { x: 380 * T, y: 18 * T, w: 2 * T, h: 4 * T };
+const FLOOR_Y = 22 * T;
+const RX0 = (ROOM.x0 + 2) * T, RX1 = (ROOM.x1 - 1) * T;   // Boss 房内部左右边界（像素）
+function setDoor(tx, closed) { for (let j = 18; j < 22; j++) for (let i = tx; i < tx + 2; i++) map[j][i] = closed ? 'D' : '.'; }
+
+function tileAt(tx, ty) {
+  if (tx < 0 || tx >= W) return '#';
+  if (ty < 0 || ty >= H) return '.';
+  return map[ty][tx];
+}
+let iceMode = false;   // 霜钟规则生效时：所有水 '~' 变成实心冰
+const isSolid = (tx, ty) => { const c = tileAt(tx, ty); return c === '#' || c === 'D' || c === 'M' || (c === '~' && iceMode); };
+
+// =====================================================================
+//  碰撞（轴分离，逐轴解析）
+// =====================================================================
+function overlapsSolid(x, y, w, h) {
+  const x0 = Math.floor(x / T), x1 = Math.floor((x + w - 1e-6) / T);
+  const y0 = Math.floor(y / T), y1 = Math.floor((y + h - 1e-6) / T);
+  for (let j = y0; j <= y1; j++) for (let i = x0; i <= x1; i++) if (isSolid(i, j)) return true;
+  return false;
+}
+function rowHas(row, x, w, c) {
+  const x0 = Math.floor(x / T), x1 = Math.floor((x + w - 1e-6) / T);
+  for (let i = x0; i <= x1; i++) if (tileAt(i, row) === c) return true;
+  return false;
+}
+// 返回是否撞墙
+function moveX(b, dx) {
+  b.x += dx;
+  if (!overlapsSolid(b.x, b.y, b.w, b.h)) return false;
+  if (dx > 0) b.x = Math.floor((b.x + b.w - 1e-6) / T) * T - b.w;
+  else b.x = (Math.floor(b.x / T) + 1) * T;
+  b.vx = 0;
+  return true;
+}
+// 返回 'floor' | 'ceil' | null
+function moveY(b, dy, corner = 0) {
+  const prevBottom = b.y + b.h;
+  b.y += dy;
+  if (dy < 0) {
+    if (overlapsSolid(b.x, b.y, b.w, b.h)) {
+      // 撞角修正：头顶擦到墙角时轻推到旁边，而不是硬生生撞停
+      for (let i = 1; i <= corner; i++) {
+        if (!overlapsSolid(b.x + i, b.y, b.w, b.h)) { b.x += i; return null; }
+        if (!overlapsSolid(b.x - i, b.y, b.w, b.h)) { b.x -= i; return null; }
+      }
+      b.y = (Math.floor(b.y / T) + 1) * T;
+      b.vy = 0;
+      return 'ceil';
+    }
+  } else if (dy > 0) {
+    if (overlapsSolid(b.x, b.y, b.w, b.h)) {
+      b.y = Math.floor((b.y + b.h - 1e-6) / T) * T - b.h;
+      return 'floor';
+    }
+    if (!(b.drop > 0)) {
+      const bottom = b.y + b.h, row = Math.floor((bottom - 1e-6) / T), top = row * T;
+      if (prevBottom <= top + 0.01 && bottom >= top && rowHas(row, b.x, b.w, '-')) {
+        b.y = top - b.h;
+        return 'floor';
+      }
+    }
+  }
+  return null;
+}
+function grounded(b) {
+  const bottom = b.y + b.h;
+  if (overlapsSolid(b.x, bottom, b.w, 0.5)) return true;
+  if (b.drop > 0) return false;
+  const row = Math.round(bottom / T);
+  return Math.abs(row * T - bottom) < 0.5 && rowHas(row, b.x, b.w, '-');
+}
+function onOneWayOnly(b) {
+  const bottom = b.y + b.h;
+  return !overlapsSolid(b.x, bottom, b.w, 0.5) && grounded(b);
+}
+
+// =====================================================================
+//  输入：键盘 / 手柄 / 触屏，统一为“动作”
+// =====================================================================
+const ACTIONS = ['left', 'right', 'up', 'down', 'jump', 'shoot', 'dash'];
+const kb = {}, gp = {}, tc = {};
+const pressed = {};
+const held = a => !!(kb[a] || gp[a] || tc[a]);
+function setSrc(src, a, down) {
+  const before = held(a);
+  src[a] = down;
+  if (!before && held(a)) pressed[a] = true;
+}
+const KEYMAP = {
+  ArrowLeft: 'left', KeyA: 'left', ArrowRight: 'right', KeyD: 'right',
+  ArrowUp: 'up', KeyW: 'up', ArrowDown: 'down', KeyS: 'down',
+  KeyZ: 'jump', KeyK: 'jump', Space: 'jump',
+  KeyX: 'shoot', KeyJ: 'shoot',
+  KeyC: 'dash', KeyL: 'dash', ShiftLeft: 'dash', ShiftRight: 'dash',
+};
+addEventListener('keydown', e => {
+  hideStart();
+  const a = KEYMAP[e.code];
+  if (a) { e.preventDefault(); if (!e.repeat) setSrc(kb, a, true); return; }
+  if (e.code === 'Tab') { e.preventDefault(); togglePanel(); }
+  else if (e.code === 'KeyR') respawn(false);
+  else if (e.code === 'KeyT') restartAll();
+  else if (e.code === 'KeyM') { muted = !muted; Music.setMute(muted, musicOff); }
+  else if (e.code === 'KeyN') { musicOff = !musicOff; Music.setMute(muted, musicOff); showMsg(musicOff ? '音乐：关' : '音乐：开', '', 1); }
+  else if (e.code === 'KeyQ' && !e.repeat) pendingToggle = true;
+  else if (e.code === 'KeyE' && !e.repeat) pendingMag = true;
+  else if (/^Digit[0-9]$/.test(e.code) && !e.repeat) { const n = +e.code[5]; teleport(n === 0 ? 9 : n - 1); }
+  else if (e.code === 'KeyH') showHint = !showHint;
+});
+addEventListener('keyup', e => { const a = KEYMAP[e.code]; if (a) { e.preventDefault(); setSrc(kb, a, false); } });
+addEventListener('blur', () => { for (const a of ACTIONS) { kb[a] = false; tc[a] = false; } });
+
+let gpPrevStart = false, gpPrevLB = false, gpPrevLT = false;
+function pollGamepad() {
+  const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+  let g = null;
+  for (const p of pads) if (p && p.connected) { g = p; break; }
+  if (!g) { for (const a of ACTIONS) if (gp[a]) setSrc(gp, a, false); return; }
+  const b = i => !!(g.buttons[i] && g.buttons[i].pressed);
+  const ax = g.axes[0] || 0, ay = g.axes[1] || 0;
+  const st = {
+    left: ax < -0.35 || b(14), right: ax > 0.35 || b(15), up: ay < -0.5 || b(12), down: ay > 0.5 || b(13),
+    jump: b(0), shoot: b(2) || b(3), dash: b(1) || b(5) || b(7),
+  };
+  for (const a of ACTIONS) if (!!gp[a] !== st[a]) setSrc(gp, a, st[a]);
+  if (st.jump || st.shoot) hideStart();
+  if (b(9) && !gpPrevStart) togglePanel();
+  gpPrevStart = b(9);
+  if (b(4) && !gpPrevLB) pendingToggle = true;
+  gpPrevLB = b(4);
+  if (b(6) && !gpPrevLT) pendingMag = true;
+  gpPrevLT = b(6);
+}
+
+// =====================================================================
+//  音效（WebAudio 合成，无外部资源）
+// =====================================================================
+let actx = null, muted = false, noiseBuf = null;
+function initAudio() {
+  if (actx) { if (actx.state === 'suspended') actx.resume(); return; }
+  setTimeout(() => { if (actx) Music.init(actx); }, 0);
+  try {
+    actx = new (window.AudioContext || window.webkitAudioContext)();
+    const len = actx.sampleRate * 0.5;
+    noiseBuf = actx.createBuffer(1, len, actx.sampleRate);
+    const d = noiseBuf.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+  } catch (e) { actx = null; }
+}
+function tone(type, f0, f1, dur, vol) {
+  if (!actx || muted) return;
+  const t = actx.currentTime, o = actx.createOscillator(), g = actx.createGain();
+  o.type = type;
+  o.frequency.setValueAtTime(f0, t);
+  o.frequency.exponentialRampToValueAtTime(Math.max(1, f1), t + dur);
+  g.gain.setValueAtTime(vol, t);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g).connect(actx.destination);
+  o.start(t); o.stop(t + dur + 0.02);
+}
+function noise(dur, vol, freq) {
+  if (!actx || muted) return;
+  const t = actx.currentTime, s = actx.createBufferSource(), f = actx.createBiquadFilter(), g = actx.createGain();
+  s.buffer = noiseBuf; f.type = 'lowpass'; f.frequency.value = freq;
+  g.gain.setValueAtTime(vol, t);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  s.connect(f).connect(g).connect(actx.destination);
+  s.start(t); s.stop(t + dur);
+}
+const SFX = {
+  jump: () => tone('square', 260, 560, 0.09, 0.045),
+  wall: () => { tone('square', 340, 760, 0.09, 0.045); noise(0.05, 0.08, 3000); },
+  land: () => noise(0.07, 0.14, 500),
+  shoot: () => tone('square', 1100, 480, 0.05, 0.03),
+  shoot1: () => tone('sawtooth', 520, 180, 0.13, 0.05),
+  shoot2: () => { tone('sawtooth', 300, 50, 0.32, 0.07); noise(0.28, 0.16, 1400); },
+  hit: () => tone('square', 230, 110, 0.05, 0.045),
+  kill: () => { noise(0.25, 0.2, 2400); tone('square', 420, 60, 0.2, 0.035); },
+  hurt: () => tone('sawtooth', 520, 90, 0.25, 0.06),
+  dash: () => noise(0.14, 0.1, 1800),
+  charged: () => tone('sine', 600, 1300, 0.12, 0.04),
+  bonk: () => tone('triangle', 160, 90, 0.05, 0.06),
+  ebullet: () => tone('square', 700, 350, 0.06, 0.02),
+  bell: () => { tone('sine', 523, 520, 1.4, 0.09); tone('sine', 1046, 1040, 0.9, 0.04); tone('triangle', 784, 780, 1.1, 0.03); },
+  slam: () => { noise(0.35, 0.25, 400); tone('square', 90, 40, 0.25, 0.06); },
+  freeze: () => { noise(0.35, 0.12, 6000); tone('sine', 1200, 2400, 0.3, 0.04); },
+  thaw: () => noise(0.3, 0.1, 900),
+  splash: () => noise(0.18, 0.12, 1500),
+  deny: () => tone('square', 160, 120, 0.12, 0.05),
+  ding: () => tone('square', 1800, 1700, 0.05, 0.03),
+  item: () => { [523, 659, 784, 1046].forEach((f, i) => setTimeout(() => tone('square', f, f, 0.1, 0.04), i * 70)); },
+  magOn: () => { tone('sawtooth', 120, 360, 0.18, 0.04); tone('sine', 240, 480, 0.2, 0.04); },
+  magOff: () => tone('sawtooth', 360, 110, 0.16, 0.035),
+  clank: () => { tone('square', 700, 260, 0.06, 0.04); noise(0.08, 0.12, 3000); },
+  needle: () => tone('triangle', 1600, 900, 0.06, 0.04),
+  snip: () => { noise(0.08, 0.15, 6000); tone('square', 1200, 600, 0.05, 0.03); },
+  pull: () => { tone('sine', 70, 110, 1.2, 0.08); tone('sawtooth', 140, 220, 1.0, 0.025); },
+  check: () => { tone('square', 520, 520, 0.08, 0.04); setTimeout(() => tone('square', 780, 780, 0.12, 0.04), 80); },
+};
+const sfx = n => { try { SFX[n] && SFX[n](); } catch (e) {} };
+
+// =====================================================================
+//  音乐：WebAudio 实时合成（铺底 / 调频钟声 / 滤波拨弦 / 合成鼓组 / 侧链律动）
+//  关卡曲「冰封钟楼」D 小调 118 BPM；Boss 曲「霜钟审判」E 小调 148 BPM
+// =====================================================================
+const Music = (() => {
+  let ac = null, master, rev, dly, pump, noiseB, drive;
+  let cur = null, curName = null, bar = 0, stp = 0, nextT = 0, vol = 0.85, off = false, mutedAll = false;
+  const mtof = n => 440 * Math.pow(2, (n - 69) / 12);
+  function impulse(sec, decay) {
+    const len = Math.floor(ac.sampleRate * sec), b = ac.createBuffer(2, len, ac.sampleRate);
+    for (let c = 0; c < 2; c++) { const d = b.getChannelData(c); for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, decay); }
+    return b;
+  }
+  function init(ctx) {
+    if (ac) return;
+    ac = ctx;
+    master = ac.createGain(); master.gain.value = 0;
+    const comp = ac.createDynamicsCompressor();
+    comp.threshold.value = -16; comp.knee.value = 10; comp.ratio.value = 3.5; comp.attack.value = 0.005; comp.release.value = 0.2;
+    const dcb = ac.createBiquadFilter(); dcb.type = 'highpass'; dcb.frequency.value = 25;   // 去直流
+    master.connect(dcb); dcb.connect(comp); comp.connect(ac.destination);
+    rev = ac.createConvolver(); rev.buffer = impulse(3.4, 2.4);
+    const rg = ac.createGain(); rg.gain.value = 0.55; rev.connect(rg); rg.connect(master);
+    dly = ac.createDelay(1.5);
+    const fb = ac.createGain(); fb.gain.value = 0.4;
+    const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 2400;
+    dly.connect(lp); lp.connect(fb); fb.connect(dly);
+    const dg = ac.createGain(); dg.gain.value = 0.5; lp.connect(dg); dg.connect(master); dg.connect(rev);
+    pump = ac.createGain(); pump.connect(master);                 // 侧链组：铺底和低音随底鼓起伏
+    noiseB = ac.createBuffer(1, ac.sampleRate, ac.sampleRate);
+    const nd = noiseB.getChannelData(0); for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
+    drive = new Float32Array(1024); for (let i = 0; i < 1024; i++) { const x = i / 512 - 1; drive[i] = Math.tanh(x * 3.5); }
+    setInterval(tick, 25);
+  }
+  function route(node, dry, r = 0, d = 0) {
+    node.connect(dry);
+    if (r) { const g = ac.createGain(); g.gain.value = r; node.connect(g); g.connect(rev); }
+    if (d) { const g = ac.createGain(); g.gain.value = d; node.connect(g); g.connect(dly); }
+  }
+  function osc(type, f, t, end, det = 0) { const o = ac.createOscillator(); o.type = type; o.frequency.value = f; o.detune.value = det; o.start(t); o.stop(end); return o; }
+  function noiseSrc(t, end) { const s = ac.createBufferSource(); s.buffer = noiseB; s.loop = true; s.start(t); s.stop(end); return s; }
+  // ---- 乐器 ----
+  function pad(t, notes, dur, o = {}) {
+    const f = ac.createBiquadFilter(); f.type = 'lowpass'; f.Q.value = 0.8;
+    const lo = o.lo || 500, hi = o.hi || 1800, a = o.att ?? 0.6, r = o.rel ?? 1.4, pk = o.vol || 0.04;
+    f.frequency.setValueAtTime(lo, t); f.frequency.linearRampToValueAtTime(hi, t + dur * 0.6); f.frequency.linearRampToValueAtTime(lo * 1.4, t + dur);
+    const g = ac.createGain();
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(pk, t + a);
+    g.gain.setValueAtTime(pk, t + Math.max(a, dur - 0.02)); g.gain.exponentialRampToValueAtTime(0.0001, t + dur + r);
+    f.connect(g); route(g, pump, 0.6, 0.08);
+    for (const n of notes) for (const det of [-9, 9, 0]) osc(det ? 'sawtooth' : 'triangle', mtof(n), t, t + dur + r + 0.1, det).connect(f);
+  }
+  function bass(t, n, dur, o = {}) {
+    const end = t + dur + 0.25;
+    const f = ac.createBiquadFilter(); f.type = 'lowpass'; f.Q.value = o.q || 6;
+    f.frequency.setValueAtTime(o.cut || 1400, t); f.frequency.exponentialRampToValueAtTime(o.floor || 160, t + (o.dec || 0.18));
+    const g = ac.createGain(), pk = o.vol || 0.15;
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(pk, t + 0.006);
+    g.gain.setTargetAtTime(pk * 0.6, t + 0.02, 0.08); g.gain.setTargetAtTime(0.0001, t + dur, 0.03);
+    const saw = osc('sawtooth', mtof(n), t, end);
+    if (o.drive) { const ws = ac.createWaveShaper(); ws.curve = drive; saw.connect(ws); ws.connect(f); } else saw.connect(f);
+    const sg = ac.createGain(); sg.gain.value = 0.9; osc('sine', mtof(n - 12), t, end).connect(sg); sg.connect(g);
+    f.connect(g); g.connect(pump);
+  }
+  function pluck(t, n, o = {}) {
+    const len = o.len || 0.35, end = t + len + 0.05;
+    const f = ac.createBiquadFilter(); f.type = 'lowpass'; f.Q.value = 3;
+    f.frequency.setValueAtTime(o.cut || 4200, t); f.frequency.exponentialRampToValueAtTime(380, t + (o.dec || 0.22));
+    const g = ac.createGain(), pk = o.vol || 0.035;
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(pk, t + 0.004); g.gain.exponentialRampToValueAtTime(0.0001, t + len);
+    const p = ac.createStereoPanner(); p.pan.value = o.pan || 0;
+    osc('sawtooth', mtof(n), t, end, -6).connect(f); osc('triangle', mtof(n), t, end, 7).connect(f);
+    f.connect(g); g.connect(p); route(p, master, 0.3, o.dly ?? 0.45);
+  }
+  function bell(t, n, o = {}) {
+    const fr = mtof(n), len = o.len || 2.2, end = t + len + 0.1;
+    const car = osc('sine', fr, t, end), mod = osc('sine', fr * (o.ratio || 3.5), t, end);
+    const mg = ac.createGain(); mg.gain.setValueAtTime(fr * (o.idx || 2.2), t); mg.gain.exponentialRampToValueAtTime(fr * 0.05, t + len * 0.6);
+    mod.connect(mg); mg.connect(car.frequency);
+    const g = ac.createGain(), pk = o.vol || 0.05;
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(pk, t + 0.005); g.gain.exponentialRampToValueAtTime(0.0001, t + len);
+    car.connect(g); route(g, master, o.rev ?? 0.7, o.dly ?? 0.25);
+  }
+  function lead(t, n, dur, o = {}) {
+    const end = t + dur + 0.3;
+    const f = ac.createBiquadFilter(); f.type = 'lowpass'; f.Q.value = 5;
+    f.frequency.setValueAtTime(800, t); f.frequency.linearRampToValueAtTime(3200, t + 0.05); f.frequency.setTargetAtTime(1600, t + 0.06, 0.15);
+    const g = ac.createGain(), pk = o.vol || 0.032;
+    g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(pk, t + 0.01); g.gain.setValueAtTime(pk, t + dur); g.gain.exponentialRampToValueAtTime(0.0001, t + dur + 0.25);
+    const vib = osc('sine', 5.5, t, end), vg = ac.createGain();
+    vg.gain.setValueAtTime(0, t); vg.gain.linearRampToValueAtTime(10, t + 0.25); vib.connect(vg);
+    for (const det of [-12, 12]) { const s = osc('sawtooth', mtof(n), t, end, det); vg.connect(s.detune); s.connect(f); }
+    f.connect(g); route(g, master, 0.35, 0.35);
+  }
+  function duck(t, amt = 0.3) { pump.gain.cancelScheduledValues(t); pump.gain.setValueAtTime(amt, t); pump.gain.linearRampToValueAtTime(1, t + 0.22); }
+  function kick(t, v = 0.85) {
+    const o = osc('sine', 150, t, t + 0.5); o.frequency.setValueAtTime(150, t); o.frequency.exponentialRampToValueAtTime(42, t + 0.13);
+    const g = ac.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(v, t + 0.002); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.42);
+    o.connect(g); g.connect(master);
+    const n = noiseSrc(t, t + 0.02), hp = ac.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 2500;
+    const ng = ac.createGain(); ng.gain.setValueAtTime(0.12, t); ng.gain.exponentialRampToValueAtTime(0.0001, t + 0.015);
+    n.connect(hp); hp.connect(ng); ng.connect(master);
+    duck(t);
+  }
+  function snare(t, v = 0.22) {
+    const n = noiseSrc(t, t + 0.3), bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1900; bp.Q.value = 0.6;
+    const g = ac.createGain(); g.gain.setValueAtTime(v, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.22);
+    n.connect(bp); bp.connect(g); route(g, master, 0.3);
+    const o = osc('triangle', 210, t, t + 0.15); o.frequency.exponentialRampToValueAtTime(150, t + 0.1);
+    const og = ac.createGain(); og.gain.setValueAtTime(v * 0.8, t); og.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
+    o.connect(og); og.connect(master);
+  }
+  function hat(t, open = false, pan = 0, v = 0.045) {
+    const len = open ? 0.22 : 0.035;
+    const n = noiseSrc(t, t + len + 0.02), hp = ac.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 7500;
+    const g = ac.createGain(); g.gain.setValueAtTime(v, t); g.gain.exponentialRampToValueAtTime(0.0001, t + len);
+    const p = ac.createStereoPanner(); p.pan.value = pan;
+    n.connect(hp); hp.connect(g); g.connect(p); p.connect(master);
+  }
+  function tom(t, f0, v = 0.3) {
+    const o = osc('sine', f0, t, t + 0.4); o.frequency.exponentialRampToValueAtTime(f0 * 0.55, t + 0.3);
+    const g = ac.createGain(); g.gain.setValueAtTime(v, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.35);
+    o.connect(g); route(g, master, 0.25);
+  }
+  function riser(t, dur, v = 0.07) {
+    const n = noiseSrc(t, t + dur + 0.05), bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 2;
+    bp.frequency.setValueAtTime(300, t); bp.frequency.exponentialRampToValueAtTime(7000, t + dur);
+    const g = ac.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(v, t + dur * 0.95); g.gain.linearRampToValueAtTime(0.0001, t + dur);
+    n.connect(bp); bp.connect(g); route(g, master, 0.5);
+  }
+  function crash(t, v = 0.06) {
+    const n = noiseSrc(t, t + 2), hp = ac.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 4500;
+    const g = ac.createGain(); g.gain.setValueAtTime(v, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 1.8);
+    n.connect(hp); hp.connect(g); route(g, master, 0.4);
+  }
+  function impact(t) {
+    const o = osc('sine', 90, t, t + 1.6); o.frequency.exponentialRampToValueAtTime(28, t + 1.2);
+    const g = ac.createGain(); g.gain.setValueAtTime(0.42, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 1.5);
+    o.connect(g); route(g, master, 0.5);
+    crash(t, 0.09);
+  }
+  // ---- 关卡曲：冰封钟楼 ----
+  const LV_A = [[50, [62, 65, 69]], [46, [62, 65, 70]], [41, [60, 65, 69]], [48, [60, 64, 67]]];   // Dm Bb F C
+  const LV_B = [[43, [62, 67, 70]], [46, [62, 65, 70]], [48, [60, 64, 67]], [45, [61, 64, 69]]];   // Gm Bb C A
+  const MEL_A = [[[0, 69], [6, 77], [8, 76], [12, 74]], [[0, 74], [6, 72], [8, 70], [12, 69]], [[0, 72], [4, 69], [8, 65], [10, 67], [12, 69]], [[0, 67], [6, 64], [8, 67], [12, 72]]];
+  const MEL_B = [[[0, 74], [4, 70], [8, 67], [12, 70]], [[0, 77], [6, 74], [8, 72], [12, 70]], [[0, 76], [4, 72], [8, 79], [12, 76]], [[0, 73], [6, 76], [8, 81], [14, 79]]];
+  const BASS_P = { 0: 0, 3: 0, 6: 12, 8: 0, 11: 0, 14: 7 };
+  const level = {
+    bpm: 118,
+    step(t, bar, s, sp) {
+      const intro = bar < 4, L = bar - 4;
+      const sec = intro ? 'I' : (L % 20 < 8 ? 'A' : L % 20 < 16 ? 'B' : 'D');
+      const bi = (intro ? bar : L) % 4;
+      const [root, ch] = (sec === 'B' ? LV_B : LV_A)[bi];
+      if (s === 0) pad(t, ch, sp * 16, { vol: sec === 'D' ? 0.05 : 0.036 });
+      const arp = [ch[0], ch[1], ch[2], ch[0] + 12, ch[2], ch[1] + 12, ch[0] + 12, ch[2]];
+      if (sec !== 'D' || s % 2 === 0)
+        pluck(t, arp[s % 8] + (sec === 'B' ? 12 : 0), { vol: intro ? 0.02 : 0.028, pan: s % 2 ? 0.4 : -0.4, cut: intro ? 1400 + bar * 600 : 3800 });
+      if (sec === 'A' || sec === 'B') {
+        if (s % 4 === 0) kick(t);
+        if (s === 4 || s === 12) snare(t);
+        hat(t, s % 4 === 2, s % 2 ? 0.25 : -0.2, s % 4 === 2 ? 0.035 : 0.04);
+        if (s in BASS_P) bass(t, root + BASS_P[s], sp * 2);
+        if (bi === 3 && s >= 12 && sec === 'B') tom(t, [220, 180, 150, 120][s - 12]);
+      }
+      const mel = (sec === 'B' ? MEL_B : MEL_A)[bi];
+      if (sec !== 'A' || bar % 8 >= 4) for (const [ms, n] of mel) if (ms === s) bell(t, n + 12, { vol: sec === 'B' ? 0.05 : 0.04 });
+      if (!intro && L % 20 === 0 && s === 0) crash(t);
+      if ((sec === 'D' && L % 20 === 19 && s === 0) || (intro && bar === 3 && s === 0)) riser(t, sp * 16);
+    },
+  };
+  // ---- Boss 曲：霜钟审判 ----
+  const BS = [[52, [64, 67, 71]], [48, [60, 64, 67]], [45, [60, 64, 69]], [47, [63, 66, 71]]];    // Em C Am B
+  const GAL = [1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1], OCT = { 8: 12, 12: 7, 14: 12 };
+  const KICK = [1, 0, 0, 1, 0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 1, 0];
+  const LEAD = [[[0, 76, 3], [3, 79, 3], [6, 78, 2], [8, 76, 4], [12, 74, 2], [14, 71, 2]], [[0, 72, 3], [3, 76, 3], [6, 79, 2], [8, 81, 4], [12, 79, 4]],
+                [[0, 81, 3], [3, 79, 3], [6, 77, 2], [8, 76, 6], [14, 72, 2]], [[0, 75, 4], [4, 78, 4], [8, 83, 6], [14, 81, 2]]];
+  const boss = {
+    bpm: 148,
+    step(t, bar, s, sp) {
+      if (bar < 2) {
+        if (s === 0) bell(t, 40, { vol: 0.1, ratio: 1.4, idx: 0.9, len: 3.5, rev: 0.9 });
+        if (s === 8) bell(t, 47, { vol: 0.06, ratio: 1.4, idx: 0.9, len: 2.5 });
+        if (bar === 1 && s === 0) riser(t, sp * 16, 0.09);
+        if (bar === 1 && s >= 8) tom(t, [260, 230, 200, 180, 160, 140, 120, 100][s - 8], 0.28);
+        return;
+      }
+      const L = bar - 2, sec = L % 16 < 8 ? 'A' : 'B', bi = L % 4;
+      const [root, ch] = BS[bi];
+      if (L % 8 === 0 && s === 0) { crash(t); if (L === 0) impact(t); }
+      if (s === 0) {
+        pad(t, ch, sp * 16, { vol: 0.03, lo: 700, hi: 2400, att: 0.05, rel: 0.6 });
+        bell(t, root, { vol: 0.055, ratio: 1.4, idx: 1.0, len: 2.4, dly: 0.1 });       // 每小节一记钟声
+      }
+      if (sec === 'B' && [3, 6, 10, 14].includes(s)) pad(t, ch.map(n => n + 12), sp * 1.5, { vol: 0.028, att: 0.005, rel: 0.12, lo: 1500, hi: 3200 });
+      if (GAL[s]) bass(t, root - 12 + (OCT[s] || 0), sp * 0.9, { drive: true, cut: 2000, floor: 220, dec: 0.1, vol: 0.11, q: 4 });
+      if (KICK[s]) kick(t, 0.9);
+      if (s === 4 || s === 12) snare(t, 0.26);
+      if (sec === 'B' || s % 2 === 0) hat(t, s % 8 === 6, s % 2 ? 0.3 : -0.3, s % 4 === 0 ? 0.05 : 0.035);
+      if (bi === 3 && s >= 12 && L % 8 === 7) { tom(t, [200, 170, 140, 110][s - 12], 0.3); if (s % 2) snare(t, 0.16); }
+      if (sec === 'B') for (const [ls, n, d] of LEAD[bi]) if (ls === s) lead(t, n, d * sp);
+    },
+  };
+  const TRACKS = { level, boss };
+  function tick() {
+    if (!cur || !ac) return;
+    const sp = 60 / cur.bpm / 4;
+    if (nextT < ac.currentTime - 0.2) nextT = ac.currentTime + 0.05;   // 标签页挂起后不补放
+    while (nextT < ac.currentTime + 0.15) {
+      cur.step(nextT, bar, stp, sp);
+      if (++stp === 16) { stp = 0; bar++; }
+      nextT += sp;
+    }
+  }
+  const level_ = () => (mutedAll || off ? 0 : vol);
+  function fadeTo(v, sec) { const n = ac.currentTime; master.gain.cancelScheduledValues(n); master.gain.setValueAtTime(master.gain.value, n); master.gain.linearRampToValueAtTime(v, n + sec); }
+  function play(name) {
+    if (!ac || name === curName) return;
+    curName = name;
+    fadeTo(0, 0.35);
+    cur = null;
+    setTimeout(() => {
+      if (curName !== name) return;
+      cur = TRACKS[name] || null; bar = 0; stp = 0; nextT = ac.currentTime + 0.05;
+      if (cur) dly.delayTime.setValueAtTime(60 / cur.bpm * 0.75, ac.currentTime);   // 附点八分音符回声
+      fadeTo(level_(), 0.3);
+    }, 380);
+  }
+  function victory() {
+    if (!ac) return;
+    curName = 'victory'; cur = null;
+    fadeTo(0, 0.15);
+    setTimeout(() => {
+      if (curName !== 'victory') return;
+      fadeTo(level_(), 0.05);
+      const t = ac.currentTime + 0.05;
+      [64, 68, 71, 76, 80].forEach((n, i) => bell(t + i * 0.13, n + 12, { vol: 0.06, len: 2.4 }));
+      pad(t, [64, 68, 71], 2.2, { vol: 0.045, att: 0.1, rel: 1.6, lo: 900, hi: 2600 });
+      setTimeout(() => { if (curName === 'victory') { curName = null; play('level'); } }, 3600);
+    }, 200);
+  }
+  // 测试用：离线渲染一段曲子，返回每秒的峰值与响度
+  async function __test(name, secs) {
+    const oc = new OfflineAudioContext(2, 44100 * secs, 44100);
+    ac = null; init(oc); master.gain.value = vol;
+    const tr = TRACKS[name], sp = 60 / tr.bpm / 4;
+    dly.delayTime.value = 60 / tr.bpm * 0.75;
+    let t = 0.05, b = 0, s = 0;
+    while (t < secs - 0.5) { tr.step(t, b, s, sp); if (++s === 16) { s = 0; b++; } t += sp; }
+    const buf = await oc.startRendering(), d = buf.getChannelData(0), out = [];
+    for (let k = 0; k < secs; k++) {
+      let pk = 0, sum = 0;
+      for (let i = k * 44100; i < (k + 1) * 44100; i++) { const v = Math.abs(d[i]); if (v > pk) pk = v; sum += v * v; }
+      let dc = 0; for (let i = k * 44100; i < (k + 1) * 44100; i++) dc += d[i];
+      out.push([+pk.toFixed(2), +Math.sqrt(sum / 44100).toFixed(3), +(dc / 44100).toFixed(3)]);
+    }
+    return out;
+  }
+  return {
+    init, play, victory, __test,
+    name: () => curName,
+    setMute(all, musicOff) { mutedAll = all; off = musicOff; if (ac) fadeTo(level_(), 0.2); },
+  };
+})();
+let musicOff = false, musicBossRef = null;
+function musicDirector() {
+  if (!actx) return;
+  const act = b => b && b.state !== 'none' && b.state !== 'dead';
+  let want = 'level';
+  if (act(boss)) { want = 'boss'; musicBossRef = boss; }
+  else if (act(boss2)) { want = 'boss'; musicBossRef = boss2; }
+  const now = Music.name();
+  if (now === 'boss' && want === 'level' && musicBossRef && musicBossRef.state === 'dead') { musicBossRef = null; Music.victory(); return; }
+  if (now !== 'victory' || want === 'boss') Music.play(want);
+}
+
+// =====================================================================
+//  游戏状态
+// =====================================================================
+let player, enemies = [], bullets = [], ebullets = [], particles = [], ghosts = [];
+let cam = { x: 0, y: 0, px: 0, py: 0, lookX: 0 };
+let hitstopT = 0, shakeT = 0, time = 0, runTime = 0, deathT = 0;
+let checkpoint = 0, goalReached = false, goalTime = 0, showHint = true;
+const BOSS_MAXHP = 28;
+let boss = null, bossProj = [], chipItem = null, chipOwned = false, chipOn = false;
+let bossFreezeT = 0, pendingToggle = false, msg = null, flashT = 0, freezeWave = null;
+let magOwned = false, magOn = false, pendingMag = false;
+
+function makePlayer(x, y) {
+  return {
+    x, y, px: x, py: y, w: 12, h: 28, vx: 0, vy: 0,
+    onGround: false, facing: 1, coyote: 0, jumpBuf: 0, dashBuf: 0, shootBuf: 0, jumping: false,
+    dashing: 0, dashDir: 1, dashJump: false, airDash: 1, wallDir: 0, wallSliding: false, wallLock: 0,
+    drop: 0, jumpT: 0, ceil: false, hp: MAXHP, iframes: 0, hurt: 0, dead: false,
+    charge: 0, charging: false, chargeLvl: 0, shootPose: 0,
+    sx: 1, sy: 1, lean: 0, dustT: 0, ghostT: 0, slideT: 0, inWater: false, bubT: 0, runPhase: 0,
+  };
+}
+function makeEnemy(type, tx, ty) {
+  const D = { walker: [20, 16, 3], hopper: [18, 20, 2], flyer: [18, 12, 2], turret: [20, 18, 4] }[type];
+  const e = { type, w: D[0], h: D[1], maxhp: D[2], spawnTx: tx, spawnTy: ty };
+  resetEnemy(e);
+  return e;
+}
+function resetEnemy(e) {
+  e.x = e.spawnTx * T + (T - e.w) / 2; e.y = (e.spawnTy + 1) * T - e.h;
+  e.px = e.x; e.py = e.y; e.baseY = e.y;
+  e.hp = e.maxhp; e.alive = true; e.respawn = 0; e.flash = 0; e.t = Math.random() * 6;
+  e.vx = 0; e.vy = 0; e.dir = -1; e.onGround = false; e.timer = 0.8 + Math.random(); e.sq = 1; e.drop = 0;
+}
+function restartAll() {
+  checkpoint = 0; runTime = 0; goalReached = false;
+  chipOwned = false; chipOn = false; chipItem = null;
+  magOwned = false; magOn = false;
+  respawn(true);
+}
+function respawn(full) {
+  const c = checkpoints[checkpoint];
+  const hp = player && !full && !player.dead ? player.hp : MAXHP;
+  player = makePlayer(c.x, c.y - 28);
+  player.hp = hp; player.iframes = 0.6;
+  enemies = spawns.map(s => makeEnemy(...s));
+  bullets = []; ebullets = []; ghosts = [];
+  deathT = 0;
+  resetBoss();
+  resetBoss2();
+  iceMode = chipOn; freezeWave = null;
+  snapCamera();
+}
+
+// =====================================================================
+//  特效
+// =====================================================================
+function addShake(a) { shakeT = Math.min(1, shakeT + a * P.shake); }
+function hitstop(t) { hitstopT = Math.max(hitstopT, t * P.hitstop); }
+function puff(x, y, n, opt = {}) {
+  for (let i = 0; i < n; i++) {
+    const a = opt.angle !== undefined ? opt.angle + rand(-opt.spread, opt.spread) : rand(0, Math.PI * 2);
+    const s = rand(opt.smin || 20, opt.smax || 80);
+    const life = rand(opt.lmin || 0.2, opt.lmax || 0.45);
+    particles.push({
+      x, y, px: x, py: y, vx: Math.cos(a) * s + (opt.vx || 0), vy: Math.sin(a) * s + (opt.vy || 0),
+      life, max: life, size: rand(opt.zmin || 1.5, opt.zmax || 3.5), color: opt.color || '#9aa0aa',
+      grav: opt.grav || 0, drag: opt.drag !== undefined ? opt.drag : 4,
+    });
+  }
+}
+const dust = (x, y, n, dir = 0) => puff(x, y, n, dir
+  ? { angle: dir > 0 ? -0.35 : Math.PI + 0.35, spread: 0.5, smin: 30, smax: 90, color: '#8a8f99', grav: -60 }
+  : { angle: -Math.PI / 2, spread: 1.4, smin: 20, smax: 70, color: '#8a8f99', grav: -40 });
+
+// =====================================================================
+//  玩家逻辑
+// =====================================================================
+function jumpVel(h) { return Math.sqrt(2 * P.gravity * h); }
+
+function updatePlayer(dt) {
+  const p = player;
+  if (p.dead) return;
+  p.coyote -= dt; p.jumpBuf -= dt; p.dashBuf -= dt; p.shootBuf -= dt;
+  p.iframes -= dt; p.wallLock -= dt; p.drop -= dt; p.shootPose -= dt;
+  if (p.hurt > 0) p.hurt -= dt;
+  const ctrl = p.hurt <= 0 && boss.state !== 'intro';
+
+  // ---- 水与冰 ----
+  const wasWater = p.inWater;
+  p.inWater = !iceMode && tileAt(Math.floor((p.x + p.w / 2) / T), Math.floor((p.y + p.h * 0.5) / T)) === '~';
+  if (wasWater !== p.inWater && Math.abs(p.vy) > 30) splash(p.x + p.w / 2, p.y + p.h * 0.5);
+  if (p.inWater) {
+    p.bubT -= dt;
+    if (p.bubT <= 0) { p.bubT = rand(0.2, 0.5); puff(p.x + p.w / 2 + p.facing * 4, p.y + 6, 1, { angle: -Math.PI / 2, spread: 0.3, smin: 10, smax: 30, color: '#cfe8ff', grav: -60, lmin: 0.5, lmax: 0.9, drag: 1, zmin: 1, zmax: 2.2 }); }
+  }
+  const footRow = Math.round((p.y + p.h) / T);
+  const onIce = p.onGround && !p.ceil && iceMode && rowHas(footRow, p.x, p.w, '~') && !rowHas(footRow, p.x, p.w, '#');
+  const wMul = p.inWater ? 0.72 : 1;
+  const ix = ctrl ? (held('right') ? 1 : 0) - (held('left') ? 1 : 0) : 0;
+
+  // ---- 贴墙检测（2px 容差） ----
+  p.wallDir = 0;
+  if (!p.onGround) {
+    // 蹬墙判定放宽到 4px，离墙一点点也能蹬
+    if (overlapsSolid(p.x - 4, p.y + 3, 4, p.h - 8)) p.wallDir = -1;
+    else if (overlapsSolid(p.x + p.w, p.y + 3, 4, p.h - 8)) p.wallDir = 1;
+  }
+  const touchingWall = p.wallDir !== 0 && (overlapsSolid(p.x - 0.5, p.y + 3, 0.5, p.h - 8) || overlapsSolid(p.x + p.w, p.y + 3, 0.5, p.h - 8));
+
+  // ---- 冲刺 ----
+  if (ctrl && p.dashBuf > 0 && p.dashing <= 0 && (p.onGround || p.airDash > 0) && !(p.wallDir && !p.onGround)) {
+    if (!p.onGround) p.airDash--;
+    p.dashBuf = 0;
+    p.dashDir = ix || p.facing;
+    p.facing = p.dashDir;
+    p.dashing = P.dashTime;
+    p.vx = p.dashDir * P.dashSpeed * wMul;
+    if (!p.onGround) p.vy = 0;
+    p.sx = 1.35; p.sy = 0.75;
+    sfx('dash');
+    dust(p.x + p.w / 2 - p.dashDir * 6, p.y + p.h, 5, -p.dashDir);
+  }
+
+  // ---- 跳跃（缓冲 + 土狼时间） ----
+  if (p.ceil && ctrl && held('down')) { p.ceil = false; p.onGround = false; p.vy = 60; sfx('magOff'); }
+  if (ctrl && p.jumpBuf > 0) {
+    if (p.ceil) {
+      // 从磁性天花板上松开
+      p.ceil = false; p.onGround = false; p.coyote = 0; p.jumpBuf = 0; p.vy = 90;
+      p.sx = 0.8; p.sy = 1.2; sfx('magOff');
+    } else if (held('down') && p.onGround && onOneWayOnly(p)) {
+      // 穿过单向平台
+      p.jumpBuf = 0; p.drop = 0.18; p.y += 1; p.onGround = false; p.coyote = 0;
+    } else if (p.onGround || p.coyote > 0) {
+      const dashJ = p.dashing > 0 || held('dash');
+      p.vy = -jumpVel(P.jumpHeight) * (p.inWater ? 0.75 : 1);
+      p.jumping = true; p.jumpT = 0; p.onGround = false; p.coyote = 0; p.jumpBuf = 0;
+      if (dashJ) { p.dashJump = true; p.vx = (ix || p.facing) * Math.max(Math.abs(p.vx), P.dashSpeed); }
+      p.dashing = 0;
+      p.sx = 0.72; p.sy = 1.3;
+      sfx('jump');
+      dust(p.x + p.w / 2, p.y + p.h, 4);
+    } else if (p.wallDir) {
+      // 蹬墙跳
+      const d = -p.wallDir;
+      const dashJ = held('dash');
+      p.vx = d * (dashJ ? P.dashSpeed : P.wallJumpX);
+      p.vy = -jumpVel(P.wallJumpHeight) * (p.inWater ? 0.75 : 1);
+      p.dashJump = dashJ; p.jumping = true; p.jumpT = 0; p.jumpBuf = 0; p.dashing = 0;
+      p.wallLock = P.wallLock; p.facing = d; p.airDash = 1;
+      p.sx = 0.75; p.sy = 1.25;
+      sfx('wall');
+      puff(p.wallDir > 0 ? p.x + p.w : p.x, p.y + p.h * 0.6, 6, { angle: d > 0 ? 0 : Math.PI, spread: 0.9, smin: 30, smax: 90, color: '#b0b6c0' });
+    }
+  }
+
+  // ---- 水平运动：加速度 + 摩擦 + 惯性保留 ----
+  if (p.dashing > 0) {
+    p.dashing -= dt;
+    p.vx = p.dashDir * P.dashSpeed * wMul;
+    if (!p.onGround) p.vy = 0;
+    if ((p.onGround && !held('dash')) || ix === -p.dashDir) p.dashing = 0;
+    p.ghostT -= dt;
+    if (p.ghostT <= 0) { p.ghostT = 0.03; ghosts.push({ x: p.x, y: p.y, life: 0.2, sx: p.sx, sy: p.sy, f: p.facing, fr: heroFrame(p) }); }
+  } else {
+    const maxSpd = (p.dashJump && !p.onGround ? P.dashSpeed : P.runSpeed) * wMul;
+    const target = ix * maxSpd;
+    let accel;
+    if (!ctrl) accel = 250;
+    else if (ix !== 0 && sign(p.vx) === ix && Math.abs(p.vx) > maxSpd) {
+      accel = p.onGround ? P.groundDecel * 0.5 : P.airDecel;     // 超速时缓慢衰减 = 惯性
+    } else if (p.onGround) {
+      accel = ix === 0 ? P.groundDecel : (p.vx !== 0 && sign(p.vx) !== ix ? P.turnAccel : P.groundAccel);
+    } else {
+      accel = ix === 0 ? P.airDecel : (p.vx !== 0 && sign(p.vx) !== ix ? P.airAccel * 1.4 : P.airAccel);
+    }
+    if (p.wallLock > 0) accel *= 0.2;
+    if (onIce && ctrl) accel *= ix === 0 ? 0.08 : 0.3;      // 冰面：起步慢、刹不住
+    // 转身打滑扬尘
+    if (p.onGround && ix !== 0 && sign(p.vx) === -ix && Math.abs(p.vx) > 90) {
+      p.slideT -= dt;
+      if (p.slideT <= 0) {
+        p.slideT = 0.04;
+        if (onIce) puff(p.x + p.w / 2, p.y + p.h, 2, { angle: ix > 0 ? -0.3 : Math.PI + 0.3, spread: 0.4, smin: 40, smax: 100, color: '#e8f7ff', zmin: 1, zmax: 2 });
+        else dust(p.x + p.w / 2, p.y + p.h, 2, ix);
+      }
+    }
+    p.vx = approach(p.vx, target, accel * dt);
+    if (ctrl && ix !== 0 && p.wallLock <= 0) p.facing = ix;
+  }
+
+  // ---- 滑墙 ----
+  p.wallSliding = !p.onGround && touchingWall && ix === p.wallDir && p.vy > 0 && p.dashing <= 0;
+  if (p.wallSliding) {
+    p.dashJump = false;
+    p.airDash = 1;
+    p.dustT -= dt;
+    if (p.dustT <= 0) {
+      p.dustT = 0.06;
+      puff(p.wallDir > 0 ? p.x + p.w : p.x, p.y + 4, 1, { angle: -Math.PI / 2, spread: 0.4, smin: 10, smax: 40, color: '#c8ccd4', zmin: 1, zmax: 2.2 });
+    }
+  }
+
+  // ---- 重力：上升/下落不对称 + 顶点滞空 + 松键截断 ----
+  if (p.ceil) {
+    p.vy = Math.max(p.vy - P.gravity * dt, -P.maxFall);          // 磁靴：重力反向，贴住天花板
+  } else if (!(p.dashing > 0 && !p.onGround)) {
+    let g = P.gravity;
+    if (p.vy > 0) g *= P.fallMult;
+    if (p.inWater) g *= 0.4;
+    if (!p.onGround && Math.abs(p.vy) < P.apexThreshold && held('jump')) g *= P.apexHang;
+    p.vy += g * dt;
+    p.jumpT += dt;
+    // 松键截断（至少保持 0.05s，保证最小跳跃高度稳定）
+    if (p.jumping && p.vy < 0 && !held('jump') && p.jumpT > 0.05) { p.vy *= P.jumpCut; p.jumping = false; }
+    if (p.vy >= 0) p.jumping = false;
+    if (p.wallSliding && p.vy > P.wallSlide) p.vy = approach(p.vy, P.wallSlide, 4000 * dt);
+    if (p.inWater) { if (p.vy > 130) p.vy = approach(p.vy, 130, 2500 * dt); }
+    else if (p.vy > P.maxFall) p.vy = P.maxFall;
+  }
+
+  // ---- 磁力吸附 ----
+  if (magOn && !p.ceil && !p.onGround && p.dashing <= 0 && (p.vy < 40 || held('up')) && magneticNear(p, 34)) {
+    p.vy -= 3000 * dt;                                            // 头顶附近的金属把人吸上去
+    if (Math.random() < 0.3) puff(p.x + p.w / 2 + rand(-6, 6), p.y, 1, { angle: -Math.PI / 2, spread: 0.3, color: '#ff9c45', smin: 40, smax: 90, lmin: 0.1, lmax: 0.2, zmin: 1, zmax: 1.5 });
+  }
+  if (magOn && p.wallSliding && magneticWall(p)) p.vy = Math.min(p.vy, 1);   // 磁性墙：贴住不滑
+
+  // ---- 移动与碰撞 ----
+  const wasGround = p.onGround, fallVy = p.vy;
+  if (moveX(p, p.vx * dt) && p.dashing > 0) p.dashing = 0;
+  const hit = moveY(p, p.vy * dt, magOn && magneticNear(p, 16) ? 0 : P.cornerCorrect);   // 磁性天花板不做撞角修正，保证能吸住
+  if (hit === 'ceil') {
+    p.jumping = false;
+    if (p.ceil) { /* 倒挂行走中，正常贴合 */ }
+    else if (magOn && magneticAbove(p)) {
+      p.ceil = true; p.vy = 0; p.dashJump = false; p.airDash = 1;
+      p.sx = 1.3; p.sy = 0.7; sfx('clank'); addShake(0.08);
+      puff(p.x + p.w / 2, p.y, 6, { angle: Math.PI / 2, spread: 1.2, color: '#ff9c45', smin: 30, smax: 90 });
+    } else { sfx('bonk'); puff(p.x + p.w / 2, p.y, 3, { angle: Math.PI / 2, spread: 1, color: '#b0b6c0' }); }
+  }
+  if (hit === 'floor') p.vy = 0;
+  if (p.ceil && (!magOn || !magneticAbove(p))) { p.ceil = false; p.vy = Math.max(p.vy, 0); }   // 走出金属范围就掉下来
+  p.onGround = p.ceil ? true : p.vy >= 0 && grounded(p);
+  if (p.onGround) {
+    p.coyote = p.ceil ? 0 : P.coyote;
+    p.airDash = 1;
+    if (!wasGround) {
+      // 落地：按冲击速度挤压
+      const k = clamp(fallVy / 480, 0.15, 1);
+      p.sx = 1 + 0.4 * k; p.sy = 1 - 0.32 * k;
+      p.dashJump = false;
+      if (fallVy > 150) { sfx('land'); dust(p.x + p.w / 2, p.y + p.h, Math.round(3 + 5 * k)); }
+      if (fallVy > 420) addShake(0.12);
+    }
+    // 跑动扬尘
+    if (Math.abs(p.vx) > 120 && !p.ceil) {
+      p.dustT -= dt;
+      if (p.dustT <= 0) { p.dustT = p.dashing > 0 ? 0.04 : 0.16; dust(p.x + p.w / 2 - sign(p.vx) * 5, p.y + p.h, 1, -sign(p.vx)); }
+    }
+  }
+
+  // ---- 射击与蓄力 ----
+  if (ctrl && p.shootBuf > 0) {
+    p.shootBuf = 0;
+    if (bullets.filter(b => b.lvl === 0).length < 4) fire(0);
+    p.charging = true; p.charge = 0; p.chargeLvl = 0;
+  }
+  if (p.charging) {
+    if (held('shoot') && ctrl) {
+      p.charge += dt;
+      const lvl = p.charge >= 1.1 ? 2 : p.charge >= 0.45 ? 1 : 0;
+      if (lvl > p.chargeLvl) { p.chargeLvl = lvl; sfx('charged'); }
+      if (p.charge > 0.3 && Math.random() < (lvl === 2 ? 0.7 : 0.35)) {
+        const a = rand(0, Math.PI * 2), r = 18;
+        const cx = p.x + p.w / 2, cy = p.y + p.h / 2;
+        particles.push({ x: cx + Math.cos(a) * r, y: cy + Math.sin(a) * r, px: 0, py: 0, vx: -Math.cos(a) * 80, vy: -Math.sin(a) * 80,
+          life: 0.2, max: 0.2, size: 1.6, color: lvl === 2 ? '#fff176' : '#81d4fa', grav: 0, drag: 0, follow: true });
+      }
+    } else {
+      if (p.chargeLvl > 0 && ctrl) fire(p.chargeLvl);
+      p.charging = false; p.charge = 0; p.chargeLvl = 0;
+    }
+  }
+
+  // ---- 尖刺 ----
+  {
+    const x0 = Math.floor((p.x + 2) / T), x1 = Math.floor((p.x + p.w - 2) / T);
+    const row = Math.floor((p.y + p.h - 1) / T);
+    for (let i = x0; i <= x1; i++) if (tileAt(i, row) === '^' && p.y + p.h > row * T + 8) {
+      hurtPlayer(3, p.x + p.w / 2 - (sign(p.vx) || p.facing) * 10);
+      if (p.iframes > 0.9) p.vy = -330;
+      break;
+    }
+  }
+
+  // ---- 掉坑 ----
+  if (p.y > H * T + 40) {
+    p.hp -= 4;
+    sfx('hurt'); addShake(0.4);
+    if (p.hp <= 0) { killPlayer(); return; }
+    const c = checkpoints[checkpoint];
+    p.x = c.x; p.y = c.y - p.h; p.px = p.x; p.py = p.y; p.vx = 0; p.vy = 0; p.iframes = 1;
+    p.dashing = 0; p.dashJump = false;
+  }
+
+  // ---- 外观：挤压回弹 + 倾斜 ----
+  const k = 1 - Math.exp(-dt * 16);
+  p.sx = lerp(p.sx, 1, k); p.sy = lerp(p.sy, 1, k);
+  const leanT = p.onGround ? (p.vx / P.dashSpeed) * 0.14 : (p.vx / P.dashSpeed) * 0.06;
+  p.lean = lerp(p.lean, leanT, 1 - Math.exp(-dt * 12));
+  if (p.onGround && Math.abs(p.vx) > 20 && p.dashing <= 0) p.runPhase += dt * (8 + Math.abs(p.vx) / P.runSpeed * 6);
+  else p.runPhase = 0;
+
+  // ---- 存档点 / 终点 ----
+  for (let i = checkpoint + 1; i < checkpoints.length; i++) {
+    if (p.x > checkpoints[i].x) { checkpoint = i; sfx('check'); puff(checkpoints[i].x + 4, checkpoints[i].y - 30, 14, { color: '#81c784', smax: 100 }); }
+  }
+  if (!goalReached && overlap(p, GOAL)) { goalReached = true; goalTime = runTime; sfx('check'); addShake(0.3); }
+}
+
+function fire(lvl) {
+  const p = player;
+  const d = p.wallSliding ? -p.wallDir : p.facing;
+  const spec = [
+    { r: 3, spd: 430, dmg: 1, pierce: false, col: '#fff59d' },
+    { r: 6, spd: 450, dmg: 2, pierce: false, col: '#81d4fa' },
+    { r: 11, spd: 470, dmg: 4, pierce: true, col: '#fff176' },
+  ][lvl];
+  const x = p.x + p.w / 2 + d * 13, y = p.ceil ? p.y + 12.5 : p.y + p.h - 12.5;
+  bullets.push({ x, y, px: x, py: y, vx: d * spec.spd + p.vx * 0.25, r: spec.r, dmg: spec.dmg, pierce: spec.pierce, col: spec.col, lvl, life: 1.2, hits: new Set() });
+  p.shootPose = 0.28;
+  puff(x, y, lvl ? 8 : 3, { angle: d > 0 ? 0 : Math.PI, spread: 0.6, smin: 40, smax: 140, color: spec.col, lmin: 0.08, lmax: 0.18, drag: 8 });
+  if (lvl === 0) sfx('shoot');
+  else if (lvl === 1) { sfx('shoot1'); addShake(0.08); }
+  else { sfx('shoot2'); addShake(0.3); if (!p.dashing) p.vx -= d * 70; }
+}
+
+function hurtPlayer(dmg, srcX) {
+  const p = player;
+  if (p.iframes > 0 || p.dead) return;
+  p.hp -= dmg;
+  p.iframes = 1.0; p.hurt = 0.3; p.ceil = false;
+  p.dashing = 0; p.dashJump = false; p.charging = false; p.charge = 0; p.chargeLvl = 0;
+  const dir = (p.x + p.w / 2) < srcX ? -1 : 1;
+  p.vx = dir * 130; p.vy = -220; p.onGround = false;
+  p.sx = 0.8; p.sy = 1.2;
+  hitstop(0.09); addShake(0.45); sfx('hurt');
+  puff(p.x + p.w / 2, p.y + p.h / 2, 10, { color: '#4fc3f7', smax: 120 });
+  if (p.hp <= 0) killPlayer();
+}
+function killPlayer() {
+  const p = player;
+  p.dead = true; p.hp = 0; deathT = 1.2;
+  hitstop(0.15); addShake(0.8);
+  for (let i = 0; i < 2; i++) puff(p.x + p.w / 2, p.y + p.h / 2, 16, { color: i ? '#ffffff' : '#4fc3f7', smin: 60, smax: 200, lmin: 0.4, lmax: 0.9, drag: 2, zmin: 2, zmax: 4.5 });
+}
+
+// =====================================================================
+//  敌人
+// =====================================================================
+function onScreen(x, y, w, h, m) {
+  return x + w > cam.x - m && x < cam.x + viewW + m && y + h > cam.y - m && y < cam.y + VIEW_H + m;
+}
+function updateEnemy(e, dt) {
+  if (!e.alive) {
+    e.respawn -= dt;
+    const sx = e.spawnTx * T, sy = e.spawnTy * T;
+    if (e.respawn <= 0 && !onScreen(sx, sy, T, T, 32)) resetEnemy(e);
+    return;
+  }
+  if (!onScreen(e.x, e.y, e.w, e.h, 80)) return;   // 屏幕外冻结
+  e.t += dt; e.flash -= dt;
+  e.sq = lerp(e.sq, 1, 1 - Math.exp(-dt * 14));
+  const p = player;
+  const pcx = p.x + p.w / 2, pcy = p.y + p.h / 2, ecx = e.x + e.w / 2, ecy = e.y + e.h / 2;
+  const dx = pcx - ecx, dy = pcy - ecy, dist = Math.hypot(dx, dy);
+
+  if (e.type === 'walker') {
+    e.vx = approach(e.vx, e.dir * 42, 500 * dt);
+    e.vy = Math.min(e.vy + 1500 * dt, 500);
+    if (moveX(e, e.vx * dt)) e.dir *= -1;
+    else if (e.onGround) {
+      const ax = e.dir > 0 ? e.x + e.w + 1 : e.x - 1;
+      const t = tileAt(Math.floor(ax / T), Math.floor((e.y + e.h + 2) / T));
+      if (!isSolid(Math.floor(ax / T), Math.floor((e.y + e.h + 2) / T)) && t !== '-') e.dir *= -1;
+    }
+    if (moveY(e, e.vy * dt) === 'floor') e.vy = 0;
+    e.onGround = grounded(e);
+  } else if (e.type === 'hopper') {
+    e.vy = Math.min(e.vy + 1500 * dt, 500);
+    if (e.onGround) {
+      e.vx = approach(e.vx, 0, 900 * dt);
+      e.timer -= dt;
+      if (e.timer < 0.25) e.sq = 0.7;   // 起跳前蓄力下蹲
+      if (e.timer <= 0) {
+        e.timer = 1.0 + Math.random() * 0.5;
+        if (dist < 230) { e.vy = -400; e.vx = sign(dx) * 95; e.sq = 1.4; e.onGround = false; }
+      }
+    }
+    if (moveX(e, e.vx * dt)) e.vx = 0;
+    const was = e.onGround;
+    if (moveY(e, e.vy * dt) === 'floor') e.vy = 0;
+    e.onGround = e.vy >= 0 && grounded(e);
+    if (e.onGround && !was) { e.sq = 0.65; dust(ecx, e.y + e.h, 3); }
+  } else if (e.type === 'flyer') {
+    const chase = dist < 240;
+    e.vx = approach(e.vx, chase ? sign(dx) * 62 : Math.sin(e.t * 0.8) * 30, 140 * dt);
+    const ty = (chase ? pcy - 22 : e.baseY) + Math.sin(e.t * 3) * 16;
+    e.vy = approach(e.vy, clamp((ty - ecy) * 2, -80, 80), 240 * dt);
+    e.x += e.vx * dt; e.y += e.vy * dt;
+  } else if (e.type === 'turret') {
+    e.dir = dx < 0 ? -1 : 1;
+    e.timer -= dt;
+    if (e.timer <= 0 && dist < 260) {
+      e.timer = 1.7;
+      const a = Math.atan2(dy, dx), s = 150;
+      const bx = ecx + Math.cos(a) * 10, by = e.y + 5 + Math.sin(a) * 10;
+      ebullets.push({ x: bx, y: by, px: bx, py: by, vx: Math.cos(a) * s, vy: Math.sin(a) * s, r: 3.5, life: 4 });
+      e.sq = 0.75; sfx('ebullet');
+    }
+  }
+  if (!p.dead && overlap(p, e)) hurtPlayer(2, ecx);
+}
+function damageEnemy(e, dmg, dirX) {
+  e.hp -= dmg; e.flash = 0.08; e.sq = 1.25;
+  if (e.type === 'walker' || e.type === 'hopper') e.vx += dirX * 70;
+  const cx = e.x + e.w / 2, cy = e.y + e.h / 2;
+  if (e.hp <= 0) {
+    e.alive = false; e.respawn = 3;
+    hitstop(0.06); addShake(0.22); sfx('kill');
+    puff(cx, cy, 14, { color: '#ffffff', smin: 60, smax: 220, lmin: 0.15, lmax: 0.4, drag: 5, zmin: 1.5, zmax: 3 });
+    puff(cx, cy, 10, { color: ENEMY_COL[e.type], smin: 40, smax: 160, lmin: 0.3, lmax: 0.6, grav: 300, drag: 1.5, zmin: 2, zmax: 4 });
+  } else {
+    hitstop(dmg >= 4 ? 0.05 : 0.025); sfx('hit');
+    puff(cx - dirX * e.w / 2, cy, 5, { angle: dirX > 0 ? Math.PI : 0, spread: 0.8, color: '#fff59d', smin: 40, smax: 140, lmin: 0.08, lmax: 0.2 });
+  }
+}
+const ENEMY_COL = { walker: '#e0883a', hopper: '#9ccc65', flyer: '#ba68c8', turret: '#ef5350' };
+
+// =====================================================================
+//  规则：霜钟（水 ⇄ 冰）
+// =====================================================================
+function splash(x, y) {
+  puff(x, y, 8, { angle: -Math.PI / 2, spread: 0.8, smin: 60, smax: 160, color: '#81c3f0', grav: 500, drag: 1, lmin: 0.3, lmax: 0.6 });
+  sfx('splash');
+}
+function showMsg(title, sub, t) { msg = { title, sub, t }; }
+function setIce(on) {
+  if (on === iceMode) return true;
+  const p = player;
+  if (on) {
+    iceMode = true;
+    // 角色在水里时，把它推到冰面上；推不出去就拒绝冻结
+    if (overlapsSolid(p.x, p.y, p.w, p.h)) {
+      let ok = false;
+      for (let d = 1; d <= 40; d++) if (!overlapsSolid(p.x, p.y - d, p.w, p.h)) { p.y -= d; p.py = p.y; p.vy = Math.min(p.vy, 0); ok = true; break; }
+      if (!ok) { iceMode = false; return false; }
+    }
+    freezeWave = { x: p.x + p.w / 2, y: p.y + p.h / 2, t0: time };
+    surfaceFx('#e8f7ff');
+  } else {
+    iceMode = false; freezeWave = null;
+    surfaceFx('#81c3f0');
+  }
+  return true;
+}
+function surfaceFx(color) {
+  const x0 = Math.max(0, Math.floor(cam.x / T)), x1 = Math.min(W - 1, Math.floor((cam.x + viewW) / T));
+  for (let j = 0; j < H; j++) for (let i = x0; i <= x1; i++)
+    if (map[j][i] === '~' && tileAt(i, j - 1) !== '~') puff((i + 0.5) * T, j * T, 2, { angle: -Math.PI / 2, spread: 1.2, smin: 20, smax: 60, color, lmin: 0.3, lmax: 0.6, zmin: 1, zmax: 2 });
+}
+function toggleChip() {
+  if (!chipOwned) return;
+  if (!chipOn) {
+    if (!setIce(true)) { sfx('deny'); showMsg('这里没有空间冻结', '先离开水道再开启规则', 1.4); return; }
+    chipOn = true; sfx('freeze');
+  } else {
+    chipOn = false;
+    if (bossFreezeT <= 0) { setIce(false); sfx('thaw'); }
+  }
+}
+
+// =====================================================================
+//  Boss：霜钟守卫
+//  招式：跳砸（地面冰刺波）/ 钟鸣（冻结水池 + 冰片）/ 滑行冲撞 / 冰锥雨
+// =====================================================================
+function resetBoss() {
+  boss = {
+    state: chipOwned ? 'dead' : 'none', x: RX1 - 80, y: FLOOR_Y, px: 0, py: 0, vx: 0, vy: 0,
+    hp: BOSS_MAXHP, hpShown: 0, inv: 0, t: 0, timer: 0, face: -1, last: '', phase: 1,
+    sq: 1, shake: 0, ring: 9, flash: 0, landed: false, boomT: 0,
+  };
+  boss.px = boss.x; boss.py = boss.y;
+  bossProj = []; bossFreezeT = 0;
+  if (!chipOwned) chipItem = null;
+  setDoor(ROOM.x0, false);
+  setDoor(ROOM.x1 - 1, !chipOwned);
+}
+function startBoss() {
+  const b = boss;
+  b.state = 'intro'; b.timer = 2.2; b.landed = false; b.hpShown = 0;
+  b.x = RX1 - 80; b.y = ROOM.top * T + 60; b.px = b.x; b.py = b.y;
+  setDoor(ROOM.x0, true);
+  sfx('slam'); addShake(0.3);
+  showMsg('霜钟守卫', '掌管「温度」的守律者', 2.4);
+}
+const bossBox = () => ({ x: boss.x - 20, y: boss.y - 46, w: 40, h: 46 });
+const bossFighting = () => ['idle', 'hopPrep', 'hop', 'tollPrep', 'chargePrep', 'charge', 'rainPrep', 'rainHold'].includes(boss.state);
+const bossVulnerableState = () => bossFighting();
+
+function updateBoss(dt) {
+  const b = boss, p = player;
+  if (b.state === 'none') {
+    if (!p.dead && p.x > (ROOM.x0 + 3) * T && p.x < ROOM.x1 * T) startBoss();
+    return;
+  }
+  if (b.state === 'dead') return;
+  b.t += dt; b.inv -= dt; b.flash -= dt; b.ring += dt;
+  b.sq = lerp(b.sq, 1, 1 - Math.exp(-dt * 10));
+  const pcx = p.x + p.w / 2;
+
+  if (b.state === 'intro') {
+    b.timer -= dt;
+    b.y = approach(b.y, FLOOR_Y, 150 * dt);
+    if (b.y >= FLOOR_Y && !b.landed) {
+      b.landed = true; b.sq = 0.65; b.ring = 0;
+      addShake(0.5); sfx('slam'); sfx('bell');
+      dust(b.x - 18, FLOOR_Y, 6); dust(b.x + 18, FLOOR_Y, 6);
+    }
+    if (b.landed) {
+      const before = Math.floor(b.hpShown);
+      b.hpShown = Math.min(BOSS_MAXHP, b.hpShown + dt * 26);
+      if (Math.floor(b.hpShown) > before) sfx('tick');
+    }
+    if (b.landed && b.hpShown >= BOSS_MAXHP && b.timer <= 0) { b.state = 'idle'; b.timer = 0.5; }
+    return;
+  }
+  if (b.state === 'dying') {
+    b.timer -= dt; b.boomT -= dt; b.shake = 1;
+    if (b.boomT <= 0) {
+      b.boomT = 0.1;
+      const ex = b.x + rand(-22, 22), ey = b.y - rand(0, 46);
+      puff(ex, ey, 10, { color: Math.random() < 0.5 ? '#ffffff' : '#81d4fa', smin: 40, smax: 160, lmin: 0.2, lmax: 0.45, zmin: 2, zmax: 4 });
+      sfx('kill'); addShake(0.15);
+    }
+    if (b.timer <= 0) {
+      b.state = 'dead';
+      flashT = 0.35; addShake(1); hitstop(0.12);
+      for (let i = 0; i < 3; i++) puff(b.x, b.y - 24, 20, { color: ['#ffffff', '#81d4fa', '#e1f5fe'][i], smin: 80, smax: 320, lmin: 0.4, lmax: 1.0, drag: 2, zmin: 2, zmax: 5 });
+      chipItem = { x: b.x, y: b.y - 30, vy: -180, t: 0 };
+    }
+    return;
+  }
+
+  b.phase = b.hp <= BOSS_MAXHP / 2 ? 2 : 1;
+  const P2 = b.phase === 2;
+  b.shake = 0;
+  switch (b.state) {
+    case 'idle':
+      b.face = sign(pcx - b.x) || b.face;
+      b.y = approach(b.y, FLOOR_Y, 200 * dt);
+      b.timer -= dt;
+      if (b.timer <= 0) pickAttack();
+      break;
+    case 'hopPrep':
+      b.timer -= dt; b.sq = 0.78;
+      if (b.timer <= 0) {
+        const tx = clamp(pcx, RX0 + 26, RX1 - 26), v = 540, g = 1400;
+        b.vx = (tx - b.x) / (2 * v / g); b.vy = -v;
+        b.state = 'hop'; b.sq = 1.3; sfx('jump');
+      }
+      break;
+    case 'hop':
+      b.vy += 1400 * dt; b.x += b.vx * dt; b.y += b.vy * dt;
+      if (b.y >= FLOOR_Y && b.vy > 0) {
+        b.y = FLOOR_Y; b.sq = 0.6;
+        addShake(0.5); sfx('slam');
+        dust(b.x - 18, FLOOR_Y, 6); dust(b.x + 18, FLOOR_Y, 6);
+        for (const d of [-1, 1]) bossProj.push({ kind: 'wave', x: b.x + d * 22, y: FLOOR_Y, px: b.x + d * 22, py: FLOOR_Y, vx: d * (P2 ? 220 : 180), dmg: 3, life: 3, fxT: 0 });
+        if (P2) spawnIcicles(3);
+        b.state = 'idle'; b.timer = P2 ? 0.55 : 0.95;
+      }
+      break;
+    case 'tollPrep':
+      b.timer -= dt; b.shake = 1.2;
+      if (b.timer <= 0) {
+        toll();
+        if (P2) startCharge(0.55); else { b.state = 'idle'; b.timer = 1.0; }
+      }
+      break;
+    case 'chargePrep':
+      b.timer -= dt; b.shake = 0.8;
+      if (Math.random() < 0.5) puff(b.x - b.face * 20, FLOOR_Y - 4, 1, { angle: b.face > 0 ? Math.PI : 0, spread: 0.4, color: '#e8f7ff', smin: 30, smax: 80, zmin: 1, zmax: 2 });
+      if (b.timer <= 0) { b.state = 'charge'; b.vx = b.face * (P2 ? 330 : 260); sfx('dash'); }
+      break;
+    case 'charge':
+      b.x += b.vx * dt;
+      if (Math.random() < 0.6) puff(b.x - b.face * 18, FLOOR_Y - 2, 1, { angle: -Math.PI / 2, spread: 0.8, color: '#e8f7ff', smin: 10, smax: 50, zmin: 1, zmax: 2.5 });
+      if (b.x < RX0 + 22 || b.x > RX1 - 22) {
+        b.x = clamp(b.x, RX0 + 22, RX1 - 22);
+        b.state = 'idle'; b.timer = P2 ? 0.55 : 0.95; b.sq = 0.7;
+        addShake(0.45); sfx('slam');
+        spawnIcicles(P2 ? 3 : 2);
+      }
+      break;
+    case 'rainPrep':
+      b.timer -= dt;
+      b.y = approach(b.y, FLOOR_Y - 26, 140 * dt);
+      if (b.timer <= 0) { spawnIcicles(P2 ? 6 : 4); sfx('bell'); b.ring = 0; b.state = 'rainHold'; b.timer = 1.3; }
+      break;
+    case 'rainHold':
+      b.timer -= dt;
+      if (b.timer < 0.5) b.y = approach(b.y, FLOOR_Y, 200 * dt);
+      if (b.timer <= 0) { b.y = FLOOR_Y; b.state = 'idle'; b.timer = P2 ? 0.3 : 0.6; }
+      break;
+  }
+  if (!p.dead && bossFighting() && overlap(p, bossBox())) hurtPlayer(4, b.x);
+}
+function startCharge(t) {
+  const b = boss;
+  b.state = 'chargePrep'; b.timer = t;
+  b.face = sign(player.x + player.w / 2 - b.x) || 1;
+}
+function pickAttack() {
+  const opts = ['hop', 'toll', 'charge', 'rain'].filter(a => a !== boss.last);
+  const a = opts[Math.floor(Math.random() * opts.length)];
+  boss.last = a;
+  if (a === 'hop') { boss.state = 'hopPrep'; boss.timer = 0.35; }
+  else if (a === 'toll') { boss.state = 'tollPrep'; boss.timer = 0.6; }
+  else if (a === 'charge') startCharge(0.65);
+  else { boss.state = 'rainPrep'; boss.timer = 0.45; }
+}
+function toll() {
+  const b = boss;
+  b.ring = 0; sfx('bell'); addShake(0.3);
+  bossFreezeT = b.phase === 2 ? 4.5 : 3.5;      // 钟声冻结房间里的水池：Boss 先向玩家“演示”这条规则
+  const n = b.phase === 2 ? 7 : 5;
+  for (let i = 0; i < n; i++) {
+    const a = -Math.PI / 2 + (i - (n - 1) / 2) * 0.34;
+    const x = b.x, y = b.y - 40;
+    bossProj.push({ kind: 'shard', x, y, px: x, py: y, vx: Math.cos(a) * 230, vy: Math.sin(a) * 300 - 60, dmg: 2, life: 4 });
+  }
+}
+function spawnIcicles(n) {
+  const xs = [clamp(player.x + player.w / 2, RX0 + 12, RX1 - 12)];
+  let guard = 0;
+  while (xs.length < n && guard++ < 200) {
+    const x = rand(RX0 + 12, RX1 - 12);
+    if (xs.every(v => Math.abs(v - x) > 30)) xs.push(x);
+  }
+  xs.forEach((x, i) => {
+    const y = ROOM.top * T;
+    bossProj.push({ kind: 'icicle', x, y, px: x, py: y, vy: 0, delay: 0.8 + i * 0.13, dmg: 3, life: 6 });
+  });
+}
+function damageBoss(dmg, dir) {
+  const b = boss;
+  b.hp -= dmg; b.inv = 0.3; b.flash = 0.1; b.sq = 1.15;
+  hitstop(dmg >= 4 ? 0.06 : 0.03); sfx('hit'); addShake(dmg >= 4 ? 0.22 : 0.06);
+  puff(b.x - dir * 20, b.y - 24, 6, { angle: dir > 0 ? Math.PI : 0, spread: 0.9, color: '#fff59d', smin: 40, smax: 160, lmin: 0.1, lmax: 0.25 });
+  if (b.hp <= 0) {
+    b.hp = 0; b.state = 'dying'; b.timer = 1.6; b.boomT = 0;
+    bossProj = []; ebullets = [];
+    if (bossFreezeT > 0) bossFreezeT = 0.01;
+    hitstop(0.25); addShake(0.6);
+  }
+}
+function bossProjBox(q) {
+  if (q.kind === 'wave') return { x: q.x - 6, y: q.y - 15, w: 12, h: 15 };
+  if (q.kind === 'shard') return { x: q.x - 3.5, y: q.y - 3.5, w: 7, h: 7 };
+  return { x: q.x - 4, y: q.y, w: 8, h: 16 };
+}
+function updateBossProj(dt) {
+  const p = player;
+  for (const q of bossProj) {
+    q.life -= dt;
+    if (q.kind === 'wave') {
+      q.x += q.vx * dt;
+      const tx = Math.floor(q.x / T);
+      if (isSolid(tx, Math.floor((q.y - 8) / T))) { q.life = 0; puff(q.x, q.y - 8, 5, { color: '#e8f7ff' }); continue; }
+      // 冰刺波碰到没结冰的水面会消失 → 水池是躲避点
+      if (tileAt(tx, Math.floor(q.y / T)) === '~' && !iceMode) { q.life = 0; splash(q.x, q.y); continue; }
+      q.fxT -= dt;
+      if (q.fxT <= 0) { q.fxT = 0.03; puff(q.x, q.y - 2, 1, { angle: -Math.PI / 2, spread: 0.6, color: '#e8f7ff', smin: 20, smax: 60, zmin: 1, zmax: 2 }); }
+    } else if (q.kind === 'shard') {
+      q.vy += 700 * dt; q.x += q.vx * dt; q.y += q.vy * dt;
+      if (isSolid(Math.floor(q.x / T), Math.floor(q.y / T))) { q.life = 0; puff(q.x, q.y, 4, { color: '#e8f7ff', smin: 30, smax: 90 }); continue; }
+    } else {
+      if (q.delay > 0) { q.delay -= dt; continue; }
+      q.vy = Math.min(q.vy + 1500 * dt, 650); q.y += q.vy * dt;
+      if (q.y + 16 >= FLOOR_Y) {
+        q.life = 0;
+        puff(q.x, FLOOR_Y - 2, 8, { angle: -Math.PI / 2, spread: 1.2, color: '#e8f7ff', smin: 50, smax: 150, grav: 400, lmin: 0.2, lmax: 0.45 });
+        sfx('hit');
+        continue;
+      }
+    }
+    if (!p.dead && overlap(p, bossProjBox(q))) { hurtPlayer(q.dmg, q.x); if (q.kind !== 'wave') q.life = 0; }
+  }
+  bossProj = bossProj.filter(q => q.life > 0);
+}
+function updateChipItem(dt) {
+  const c = chipItem;
+  if (!c) return;
+  c.t += dt;
+  c.x = approach(c.x, (RX0 + RX1) / 2, 140 * dt);     // 芯片飘向房间中央，避免落在水池上
+  c.vy += 600 * dt; c.y += c.vy * dt;
+  if (c.y > FLOOR_Y - 14) { c.y = FLOOR_Y - 14; c.vy = 0; }
+  const p = player;
+  if (!p.dead && overlap(p, { x: c.x - 8, y: c.y - 8, w: 16, h: 16 })) {
+    chipItem = null; chipOwned = true;
+    setDoor(ROOM.x0, false); setDoor(ROOM.x1 - 1, false);
+    sfx('item'); flashT = 0.2;
+    puff(c.x, c.y, 18, { color: '#81d4fa', smin: 60, smax: 200, lmin: 0.3, lmax: 0.7 });
+    showMsg('获得规则芯片「霜钟」', '按 Q（手柄 LB）切换：水 ⇄ 冰', 4.5);
+  }
+}
+
+function drawBoss(a) {
+  const b = boss;
+  if (b.state === 'none' || b.state === 'dead') return;
+  const x = lerp(b.px, b.x, a) + (b.shake ? rand(-1, 1) * b.shake * 1.5 : 0), y = lerp(b.py, b.y, a);
+  // 钟声冲击环
+  if (b.ring < 0.7) {
+    ctx.strokeStyle = `rgba(179,229,252,${1 - b.ring / 0.7})`;
+    ctx.lineWidth = 3 * (1 - b.ring / 0.7) + 0.5;
+    ctx.beginPath(); ctx.arc(x, y - 28, 20 + b.ring * 420, 0, Math.PI * 2); ctx.stroke();
+  }
+  // 入场时吊着的铁链
+  if (b.state === 'intro' && !b.landed) {
+    ctx.fillStyle = '#5d6373';
+    for (let cy2 = ROOM.top * T; cy2 < y - 56; cy2 += 6) ctx.fillRect(x - 1.5, cy2, 3, 4);
+  }
+  // 地面阴影（跳起时变小）
+  const hgt = clamp((FLOOR_Y - y) / 120, 0, 1);
+  ctx.fillStyle = `rgba(0,0,0,${0.3 * (1 - hgt * 0.6)})`;
+  ctx.beginPath(); ctx.ellipse(x, FLOOR_Y, 24 * (1 - hgt * 0.4), 3, 0, 0, Math.PI * 2); ctx.fill();
+
+  const white = b.flash > 0 || (b.state === 'dying' && Math.floor(time * 20) % 2);
+  const P2 = b.phase === 2;
+  const bs = SPR.bell, cs = SPR.clapper;
+  if (!bs || !cs) return;
+  ctx.save();
+  ctx.translate(Math.round(x), Math.round(y));
+  ctx.scale(1 / Math.sqrt(b.sq), b.sq);
+  if (b.state === 'chargePrep') ctx.rotate(-b.face * 0.12);
+  if (b.state === 'charge') ctx.rotate(b.face * 0.1);
+  // 钟锤（画在钟身后面，只露出钟口下的锤头）
+  const sw = b.state === 'charge' ? -b.face * 0.6 : Math.sin(b.t * 4) * 0.35;
+  ctx.save(); ctx.translate(0, -24); ctx.rotate(sw);
+  ctx.drawImage(white ? cs.white : cs.normal, -5, 0);
+  ctx.restore();
+  ctx.drawImage(white ? bs.white : bs.normal, P2 ? 56 : 0, 0, 56, 56, -28, -54, 56, 56);
+  // 护目镜里的眼睛（看向玩家）
+  if (!white) {
+    const ex = b.face > 0 ? 3 : -13;
+    ctx.fillStyle = P2 ? '#ff5a5a' : '#48f0d8';
+    ctx.fillRect(ex, -28, 10, 3);
+    ctx.fillStyle = '#ffffff'; ctx.fillRect(ex + (b.face > 0 ? 7 : 1), -28, 2, 1);
+  }
+  ctx.restore();
+}
+function drawBossProj(a) {
+  for (const q of bossProj) {
+    const x = lerp(q.px, q.x, a), y = lerp(q.py, q.y, a);
+    if (q.kind === 'wave') {
+      ctx.fillStyle = '#b3e5fc';
+      ctx.beginPath(); ctx.moveTo(x - 7, y); ctx.lineTo(x - 2, y - 15); ctx.lineTo(x + 1, y - 9); ctx.lineTo(x + 4, y - 13); ctx.lineTo(x + 7, y); ctx.fill();
+      ctx.fillStyle = '#ffffff'; ctx.fillRect(x - 2.5, y - 11, 1.5, 8);
+    } else if (q.kind === 'shard') {
+      ctx.save(); ctx.translate(x, y); ctx.rotate(Math.atan2(q.vy, q.vx));
+      ctx.fillStyle = '#e1f5fe';
+      ctx.beginPath(); ctx.moveTo(6, 0); ctx.lineTo(0, -3); ctx.lineTo(-6, 0); ctx.lineTo(0, 3); ctx.fill();
+      ctx.restore();
+    } else {
+      const jit = q.delay > 0 ? rand(-0.8, 0.8) : 0;
+      ctx.fillStyle = '#b3e5fc';
+      ctx.beginPath(); ctx.moveTo(x - 5 + jit, y); ctx.lineTo(x + 5 + jit, y); ctx.lineTo(x + jit, y + 17); ctx.fill();
+      ctx.fillStyle = '#ffffff'; ctx.fillRect(x - 2 + jit, y + 1, 1.5, 8);
+      if (q.delay > 0 && Math.floor(time * 12) % 2) {        // 落点预警
+        ctx.fillStyle = 'rgba(255,120,120,0.8)';
+        ctx.fillRect(x - 6, FLOOR_Y - 2, 12, 2);
+      }
+    }
+  }
+}
+function drawChipItem() {
+  const c = chipItem;
+  if (!c) return;
+  const y = c.y + Math.sin(c.t * 4) * 2;
+  ctx.globalAlpha = 0.35 + 0.2 * Math.sin(c.t * 6);
+  ctx.fillStyle = '#81d4fa';
+  ctx.beginPath(); ctx.arc(c.x, y, 12, 0, Math.PI * 2); ctx.fill();
+  ctx.globalAlpha = 1;
+  ctx.save(); ctx.translate(c.x, y); ctx.rotate(Math.PI / 4);
+  ctx.fillStyle = '#e1f5fe'; ctx.fillRect(-6, -6, 12, 12);
+  ctx.fillStyle = '#0d2b52'; ctx.fillRect(-3, -3, 6, 6);
+  ctx.restore();
+}
+
+// =====================================================================
+//  规则：磁暴（磁靴：吸附金属天花板与墙）
+// =====================================================================
+const isMagnetic = c => c === 'M' || (c === '~' && iceMode && magOn);    // 双芯片组合：冰也带磁性
+function magneticAbove(b) {
+  const row = Math.floor((b.y - 1) / T);
+  if (Math.abs((row + 1) * T - b.y) > 1.5) return false;
+  const x0 = Math.floor(b.x / T), x1 = Math.floor((b.x + b.w - 1e-6) / T);
+  for (let i = x0; i <= x1; i++) if (isMagnetic(tileAt(i, row))) return true;
+  return false;
+}
+function magneticNear(b, dist) {
+  const x0 = Math.floor(b.x / T), x1 = Math.floor((b.x + b.w - 1e-6) / T);
+  const r0 = Math.floor((b.y - dist) / T), r1 = Math.floor((b.y - 1) / T);
+  for (let j = r1; j >= r0; j--) {
+    let solid = false;
+    for (let i = x0; i <= x1; i++) { if (isMagnetic(tileAt(i, j))) return true; if (isSolid(i, j)) solid = true; }
+    if (solid) return false;
+  }
+  return false;
+}
+function magneticWall(p) {
+  const tx = Math.floor((p.wallDir > 0 ? p.x + p.w + 1 : p.x - 1) / T);
+  for (let y = p.y + 3; y < p.y + p.h - 3; y += 6) if (isMagnetic(tileAt(tx, Math.floor(y / T)))) return true;
+  return false;
+}
+function toggleMag() {
+  if (!magOwned) return;
+  magOn = !magOn;
+  sfx(magOn ? 'magOn' : 'magOff');
+  const p = player;
+  if (!magOn && p.ceil) { p.ceil = false; p.onGround = false; }
+  puff(p.x + p.w / 2, p.y + p.h / 2, 10, { color: magOn ? '#ff9c45' : '#7a869c', smin: 30, smax: 90 });
+}
+function teleport(i) {
+  if (i >= checkpoints.length) return;
+  checkpoint = i;
+  chipOwned = i >= 5;               // 已越过霜钟守卫
+  magOwned = i >= 8;                // 已越过磁暴裁缝
+  if (!chipOwned) chipOn = false;
+  if (!magOwned) magOn = false;
+  chipItem = null; magItem = null;
+  respawn(true);
+  showMsg(`传送到存档点 ${i + 1}`, '原型测试功能', 1.2);
+}
+
+// =====================================================================
+//  Boss 2：磁暴裁缝
+//  招式：投针 / 磁力牵引（拉向张开的剪刀）/ 跳上金属天花板追击后砸下
+// =====================================================================
+const B2X0 = (ROOM2.x0 + 2) * T, B2X1 = (ROOM2.x1 - 1) * T, B2CEIL = ROOM2.top * T;
+let boss2 = null, b2Proj = [], magItem = null;
+function resetBoss2() {
+  boss2 = {
+    state: magOwned ? 'dead' : 'none', x: B2X1 - 70, y: FLOOR_Y, px: 0, py: 0, vx: 0, vy: 0, ceil: false,
+    hp: BOSS_MAXHP, hpShown: 0, inv: 0, t: 0, timer: 0, face: -1, last: '', phase: 1, sq: 1, flash: 0,
+    boomT: 0, landed: false, shotT: 0, throwT: 0,
+  };
+  boss2.px = boss2.x; boss2.py = boss2.y;
+  b2Proj = [];
+  if (!magOwned) magItem = null;
+  setDoor(ROOM2.x0, false);
+  setDoor(ROOM2.x1 - 1, !magOwned);
+}
+function startBoss2() {
+  const b = boss2;
+  b.state = 'intro'; b.timer = 2.6; b.landed = false; b.hpShown = 0;
+  b.ceil = true; b.x = B2X1 - 70; b.y = B2CEIL; b.px = b.x; b.py = b.y;
+  setDoor(ROOM2.x0, true);
+  sfx('slam'); addShake(0.3);
+  showMsg('磁暴裁缝', '掌管「磁力」的守律者', 2.4);
+}
+const box2 = b => b.ceil ? { x: b.x - 12, y: b.y, w: 24, h: 40 } : { x: b.x - 12, y: b.y - 40, w: 24, h: 40 };
+const boss2Fighting = () => ['idle', 'needlePrep', 'pullPrep', 'pull', 'jumpUp', 'ceilRun', 'dropPrep', 'drop'].includes(boss2.state);
+function throwNeedles(n, fromCeil) {
+  const b = boss2, p = player;
+  const sx = fromCeil ? b.x : b.x + b.face * 14, sy = fromCeil ? b.y + 30 : b.y - 32;
+  const a0 = Math.atan2(p.y + p.h / 2 - sy, p.x + p.w / 2 - sx);
+  for (let i = 0; i < n; i++) {
+    const a = a0 + (i - (n - 1) / 2) * 0.2, s = 250;
+    b2Proj.push({ kind: 'needle', x: sx, y: sy, px: sx, py: sy, vx: Math.cos(a) * s, vy: Math.sin(a) * s, dmg: 2, life: 3, stuck: false });
+  }
+  b.throwT = 0.25; sfx('needle');
+}
+function pick2() {
+  const b = boss2;
+  const opts = ['needle', 'pull', 'ceil'].filter(a => a !== b.last);
+  const a = opts[Math.floor(Math.random() * opts.length)];
+  b.last = a;
+  if (a === 'needle') { b.state = 'needlePrep'; b.timer = 0.4; }
+  else if (a === 'pull') { b.state = 'pullPrep'; b.timer = 0.55; }
+  else { b.state = 'jumpUp'; b.vy = -650; b.sq = 1.3; sfx('jump'); }
+}
+function updateBoss2(dt) {
+  const b = boss2, p = player;
+  if (b.state === 'none') {
+    if (!p.dead && p.x > (ROOM2.x0 + 3) * T && p.x < ROOM2.x1 * T) startBoss2();
+    return;
+  }
+  if (b.state === 'dead') return;
+  b.t += dt; b.inv -= dt; b.flash -= dt; b.throwT -= dt;
+  b.sq = lerp(b.sq, 1, 1 - Math.exp(-dt * 10));
+  const pcx = p.x + p.w / 2;
+  if (b.state === 'intro') {
+    b.timer -= dt;
+    if (!b.landed) {
+      if (b.timer < 1.9) {
+        if (b.ceil) { b.ceil = false; b.y = B2CEIL + 40; b.vy = 0; sfx('magOff'); }
+        b.vy += 1800 * dt; b.y += b.vy * dt;
+        if (b.y >= FLOOR_Y) { b.y = FLOOR_Y; b.landed = true; b.sq = 0.65; addShake(0.45); sfx('slam'); dust(b.x - 10, FLOOR_Y, 6); dust(b.x + 10, FLOOR_Y, 6); }
+      }
+    } else {
+      const before = Math.floor(b.hpShown);
+      b.hpShown = Math.min(BOSS_MAXHP, b.hpShown + dt * 26);
+      if (Math.floor(b.hpShown) > before) sfx('tick');
+    }
+    b.face = sign(pcx - b.x) || -1;
+    if (b.landed && b.hpShown >= BOSS_MAXHP && b.timer <= 0) { b.state = 'idle'; b.timer = 0.5; }
+    return;
+  }
+  if (b.state === 'dying') {
+    b.timer -= dt; b.boomT -= dt;
+    if (b.boomT <= 0) {
+      b.boomT = 0.1;
+      const bb = box2(b);
+      puff(bb.x + rand(0, bb.w), bb.y + rand(0, bb.h), 10, { color: Math.random() < 0.5 ? '#ffffff' : '#ff9c45', smin: 40, smax: 160, lmin: 0.2, lmax: 0.45, zmin: 2, zmax: 4 });
+      sfx('kill'); addShake(0.15);
+    }
+    if (b.timer <= 0) {
+      b.state = 'dead';
+      flashT = 0.35; addShake(1); hitstop(0.12);
+      const cy = b.ceil ? b.y + 20 : b.y - 20;
+      for (let i = 0; i < 3; i++) puff(b.x, cy, 20, { color: ['#ffffff', '#ff9c45', '#b48ae8'][i], smin: 80, smax: 320, lmin: 0.4, lmax: 1.0, drag: 2, zmin: 2, zmax: 5 });
+      magItem = { x: b.x, y: cy, vy: -150, t: 0 };
+    }
+    return;
+  }
+  b.phase = b.hp <= BOSS_MAXHP / 2 ? 2 : 1;
+  const P2 = b.phase === 2;
+  switch (b.state) {
+    case 'idle':
+      b.face = sign(pcx - b.x) || b.face;
+      b.timer -= dt;
+      if (b.timer <= 0) pick2();
+      break;
+    case 'needlePrep':
+      b.timer -= dt;
+      if (b.timer <= 0) { throwNeedles(P2 ? 5 : 3, false); b.state = 'idle'; b.timer = P2 ? 0.55 : 0.9; }
+      break;
+    case 'pullPrep':
+      b.timer -= dt; b.face = sign(pcx - b.x) || b.face;
+      if (Math.random() < 0.5) puff(b.x - b.face * 16, b.y - 16, 1, { color: Math.random() < 0.5 ? '#ff5a5a' : '#5aa0ff', smin: 20, smax: 60, zmin: 1, zmax: 2 });
+      if (b.timer <= 0) { b.state = 'pull'; b.timer = P2 ? 2.2 : 1.8; b.shotT = 0.6; sfx('pull'); }
+      break;
+    case 'pull': {
+      b.timer -= dt;
+      const d = sign(b.x - pcx);
+      if (!p.dead && p.hurt <= 0 && Math.abs(b.x - pcx) > 4) moveX(p, d * (P2 ? 110 : 90) * dt);   // 磁力牵引：站着不动会被拖过去
+      if (Math.random() < 0.4) puff(pcx + rand(-4, 4), p.y + p.h / 2 + rand(-6, 6), 1, { angle: d > 0 ? 0 : Math.PI, spread: 0.2, color: '#ff9c45', smin: 60, smax: 120, lmin: 0.15, lmax: 0.3, zmin: 1, zmax: 1.6 });
+      if (P2) { b.shotT -= dt; if (b.shotT <= 0) { b.shotT = 0.7; throwNeedles(1, false); } }
+      if (b.timer <= 0) { b.state = 'idle'; b.timer = 0.7; }
+      break;
+    }
+    case 'jumpUp':
+      b.y += b.vy * dt;
+      if (b.y - 40 <= B2CEIL) {
+        b.ceil = true; b.y = B2CEIL; b.vy = 0; b.sq = 0.7;
+        sfx('clank'); addShake(0.2);
+        puff(b.x, B2CEIL, 8, { angle: Math.PI / 2, spread: 1.2, color: '#ff9c45', smin: 30, smax: 100 });
+        b.state = 'ceilRun'; b.timer = P2 ? 1.1 : 1.4; b.shotT = 0.35;
+      }
+      break;
+    case 'ceilRun':
+      b.face = sign(pcx - b.x) || b.face;
+      b.x = approach(b.x, clamp(pcx, B2X0 + 16, B2X1 - 16), (P2 ? 260 : 210) * dt);
+      b.timer -= dt;
+      if (P2) { b.shotT -= dt; if (b.shotT <= 0) { b.shotT = 0.4; throwNeedles(1, true); } }
+      if (b.timer <= 0) { b.state = 'dropPrep'; b.timer = 0.4; }
+      break;
+    case 'dropPrep':
+      b.timer -= dt;
+      if (b.timer <= 0) { b.state = 'drop'; b.ceil = false; b.y = B2CEIL + 40; b.vy = 100; sfx('snip'); }
+      break;
+    case 'drop':
+      b.vy += 2400 * dt; b.y += b.vy * dt;
+      if (b.y >= FLOOR_Y) {
+        b.y = FLOOR_Y; b.sq = 0.6;
+        addShake(0.5); sfx('slam');
+        dust(b.x - 10, FLOOR_Y, 6); dust(b.x + 10, FLOOR_Y, 6);
+        for (const d of [-1, 1]) b2Proj.push({ kind: 'spark', x: b.x + d * 14, y: FLOOR_Y, px: b.x + d * 14, py: FLOOR_Y, vx: d * (P2 ? 230 : 190), dmg: 3, life: 3 });
+        b.state = 'idle'; b.timer = P2 ? 0.5 : 0.9;
+      }
+      break;
+  }
+  if (!p.dead && boss2Fighting()) {
+    if (overlap(p, box2(b))) hurtPlayer(4, b.x);
+    else if (b.state === 'pull' && overlap(p, { x: b.x - 22, y: b.y - 50, w: 44, h: 22 })) hurtPlayer(3, b.x);   // 张开的剪刀
+  }
+}
+function damageBoss2(dmg, dir) {
+  const b = boss2;
+  b.hp -= dmg; b.inv = 0.3; b.flash = 0.1; b.sq = 1.15;
+  hitstop(dmg >= 4 ? 0.06 : 0.03); sfx('hit'); addShake(dmg >= 4 ? 0.22 : 0.06);
+  const bb = box2(b);
+  puff(b.x - dir * 12, bb.y + bb.h / 2, 6, { angle: dir > 0 ? Math.PI : 0, spread: 0.9, color: '#fff59d', smin: 40, smax: 160, lmin: 0.1, lmax: 0.25 });
+  if (b.hp <= 0) {
+    b.hp = 0; b.state = 'dying'; b.timer = 1.6; b.boomT = 0;
+    b2Proj = []; ebullets = [];
+    hitstop(0.25); addShake(0.6);
+  }
+}
+function updateB2Proj(dt) {
+  const p = player;
+  for (const q of b2Proj) {
+    q.life -= dt;
+    if (q.kind === 'needle') {
+      if (q.stuck) continue;
+      q.x += q.vx * dt; q.y += q.vy * dt;
+      if (isSolid(Math.floor(q.x / T), Math.floor(q.y / T))) { q.stuck = true; q.life = 0.6; puff(q.x, q.y, 3, { color: '#d3dbe8', smin: 20, smax: 60 }); continue; }
+      if (!p.dead && overlap(p, { x: q.x - 3, y: q.y - 3, w: 6, h: 6 })) { hurtPlayer(q.dmg, q.x); q.life = 0; }
+    } else {
+      q.x += q.vx * dt;
+      if (isSolid(Math.floor(q.x / T), Math.floor((q.y - 8) / T))) { q.life = 0; puff(q.x, q.y - 6, 5, { color: '#ff9c45' }); continue; }
+      if (Math.random() < 0.5) puff(q.x, q.y - rand(0, 10), 1, { angle: -Math.PI / 2, spread: 1.2, color: Math.random() < 0.5 ? '#ff9c45' : '#ffe066', smin: 20, smax: 70, lmin: 0.1, lmax: 0.25, zmin: 1, zmax: 2 });
+      if (!p.dead && overlap(p, { x: q.x - 6, y: q.y - 12, w: 12, h: 12 })) hurtPlayer(q.dmg, q.x);
+    }
+  }
+  b2Proj = b2Proj.filter(q => q.life > 0);
+}
+function updateMagItem(dt) {
+  const c = magItem;
+  if (!c) return;
+  c.t += dt;
+  c.x = approach(c.x, (B2X0 + B2X1) / 2, 140 * dt);
+  c.vy += 600 * dt; c.y += c.vy * dt;
+  if (c.y > FLOOR_Y - 14) { c.y = FLOOR_Y - 14; c.vy = 0; }
+  const p = player;
+  if (!p.dead && overlap(p, { x: c.x - 8, y: c.y - 8, w: 16, h: 16 })) {
+    magItem = null; magOwned = true;
+    setDoor(ROOM2.x0, false); setDoor(ROOM2.x1 - 1, false);
+    sfx('item'); flashT = 0.2;
+    puff(c.x, c.y, 18, { color: '#ff9c45', smin: 60, smax: 200, lmin: 0.3, lmax: 0.7 });
+    showMsg('获得规则芯片「磁暴」', '按 E（手柄 LT）切换：吸附金属，倒着走', 4.5);
+  }
+}
+function drawBoss2(a) {
+  const b = boss2;
+  if (b.state === 'none' || b.state === 'dead' || !SPR.tailor) return;
+  const x = lerp(b.px, b.x, a), y = lerp(b.py, b.y, a);
+  const p = player;
+  // 磁力线
+  if (b.state === 'pull' && !p.dead) {
+    const hx = x + b.face * 16, hy = y - 18, tx = p.x + p.w / 2, ty = p.y + p.h / 2;
+    ctx.lineWidth = 1;
+    for (let k = -1; k <= 1; k++) {
+      ctx.strokeStyle = k === 0 ? 'rgba(255,156,69,0.8)' : k < 0 ? 'rgba(255,90,90,0.55)' : 'rgba(90,160,255,0.55)';
+      ctx.setLineDash([3, 3]); ctx.lineDashOffset = -time * 40;
+      ctx.beginPath(); ctx.moveTo(hx, hy); ctx.quadraticCurveTo((hx + tx) / 2, (hy + ty) / 2 + k * 18, tx, ty); ctx.stroke();
+    }
+    ctx.setLineDash([]);
+  }
+  // 砸落预警线
+  if (b.state === 'dropPrep' && Math.floor(time * 16) % 2) {
+    ctx.fillStyle = 'rgba(255,90,90,0.5)'; ctx.fillRect(Math.round(x) - 1, B2CEIL + 40, 2, FLOOR_Y - B2CEIL - 40);
+    ctx.fillRect(Math.round(x) - 10, FLOOR_Y - 2, 20, 2);
+  }
+  if (!b.ceil) {
+    ctx.fillStyle = 'rgba(0,0,0,0.3)';
+    ctx.beginPath(); ctx.ellipse(x, FLOOR_Y, 14, 2.5, 0, 0, Math.PI * 2); ctx.fill();
+  }
+  const white = b.flash > 0 || (b.state === 'dying' && Math.floor(time * 20) % 2);
+  const pose = b.throwT > 0 ? 2 : (b.state === 'pull' || b.state === 'pullPrep' || b.state === 'drop' || b.state === 'dropPrep') ? 1 : 0;
+  const drawFace = (b.state === 'pull' || b.state === 'pullPrep') ? -b.face : b.face;   // 牵引时用背后的磁铁对准玩家
+  ctx.save();
+  ctx.translate(Math.round(x) + (b.state === 'dropPrep' ? rand(-1, 1) : 0), Math.round(y));
+  ctx.scale(drawFace / Math.sqrt(b.sq), (b.ceil ? -1 : 1) * b.sq);
+  ctx.drawImage(white ? SPR.tailor.white : SPR.tailor.normal, pose * 44, 0, 44, 50, -22, -49, 44, 50);
+  if (b.phase === 2 && !white) { ctx.fillStyle = '#ff5a5a'; ctx.fillRect(-1, -35, 2, 1); }
+  ctx.restore();
+}
+function drawB2Proj(a) {
+  for (const q of b2Proj) {
+    const x = lerp(q.px, q.x, a), y = lerp(q.py, q.y, a);
+    if (q.kind === 'needle') {
+      const ang = Math.atan2(q.vy, q.vx);
+      ctx.save(); ctx.translate(x, y); ctx.rotate(ang);
+      ctx.globalAlpha = q.stuck ? clamp(q.life / 0.6, 0, 1) : 1;
+      ctx.fillStyle = '#e8eef6'; ctx.fillRect(-6, -0.5, 10, 1.5);
+      ctx.fillStyle = '#ffffff'; ctx.fillRect(3, -0.5, 2, 1);
+      ctx.fillStyle = '#ff9ad0'; ctx.fillRect(-9, 0, 3, 1);
+      ctx.restore(); ctx.globalAlpha = 1;
+    } else {
+      ctx.fillStyle = Math.floor(time * 20) % 2 ? '#ff9c45' : '#ffe066';
+      for (let k = 0; k < 4; k++) ctx.fillRect(x - 5 + k * 3, y - 4 - ((k + Math.floor(time * 30)) % 3) * 3, 2, 4);
+      ctx.fillStyle = '#ffffff'; ctx.fillRect(x - 1, y - 6, 2, 6);
+    }
+  }
+}
+function drawMagItem() {
+  const c = magItem;
+  if (!c) return;
+  const y = c.y + Math.sin(c.t * 4) * 2;
+  ctx.globalAlpha = 0.35 + 0.2 * Math.sin(c.t * 6);
+  ctx.fillStyle = '#ff9c45'; ctx.beginPath(); ctx.arc(c.x, y, 12, 0, Math.PI * 2); ctx.fill();
+  ctx.globalAlpha = 1;
+  ctx.save(); ctx.translate(c.x, y); ctx.rotate(Math.PI / 4);
+  ctx.fillStyle = '#ffe2c4'; ctx.fillRect(-6, -6, 12, 12);
+  ctx.fillStyle = '#5e240a'; ctx.fillRect(-3, -3, 6, 6);
+  ctx.restore();
+}
+
+// =====================================================================
+//  子弹 / 粒子
+// =====================================================================
+function updateBullets(dt) {
+  for (const b of bullets) {
+    b.x += b.vx * dt; b.y += (b.vy || 0) * dt; b.life -= dt;
+    if (b.deflected) { b.vy += 900 * dt; continue; }
+    if (isSolid(Math.floor(b.x / T), Math.floor(b.y / T))) {
+      b.life = 0;
+      puff(b.x, b.y, 4, { color: b.col, smin: 30, smax: 100, lmin: 0.08, lmax: 0.18 });
+      continue;
+    }
+    for (const e of enemies) {
+      if (!e.alive || b.hits.has(e)) continue;
+      if (b.x + b.r > e.x && b.x - b.r < e.x + e.w && b.y + b.r > e.y && b.y - b.r < e.y + e.h) {
+        b.hits.add(e);
+        damageEnemy(e, b.dmg, sign(b.vx));
+        if (!b.pierce) { b.life = 0; break; }
+      }
+    }
+    if (b.life > 0 && boss2Fighting() && !b.hits.has(boss2)) {
+      const bb = box2(boss2);
+      if (b.x + b.r > bb.x && b.x - b.r < bb.x + bb.w && b.y + b.r > bb.y && b.y - b.r < bb.y + bb.h) {
+        if (boss2.inv > 0) { b.deflected = true; b.vx = -b.vx * 0.5; b.vy = -240; b.life = 0.4; sfx('ding'); }
+        else { b.hits.add(boss2); damageBoss2(b.dmg, sign(b.vx)); if (!b.pierce) b.life = 0; }
+      }
+    }
+    if (b.life > 0 && bossVulnerableState() && !b.hits.has(boss)) {
+      const bb = bossBox();
+      if (b.x + b.r > bb.x && b.x - b.r < bb.x + bb.w && b.y + b.r > bb.y && b.y - b.r < bb.y + bb.h) {
+        if (boss.inv > 0) {
+          // 无敌时间内子弹被弹开（经典的“叮”）
+          b.deflected = true; b.vx = -b.vx * 0.5; b.vy = -240; b.life = 0.4; sfx('ding');
+        } else {
+          b.hits.add(boss);
+          damageBoss(b.dmg, sign(b.vx));
+          if (!b.pierce) b.life = 0;
+        }
+      }
+    }
+    if (b.x < cam.x - 40 || b.x > cam.x + viewW + 40) b.life = 0;
+  }
+  bullets = bullets.filter(b => b.life > 0);
+
+  const p = player;
+  for (const b of ebullets) {
+    b.x += b.vx * dt; b.y += b.vy * dt; b.life -= dt;
+    if (isSolid(Math.floor(b.x / T), Math.floor(b.y / T))) { b.life = 0; puff(b.x, b.y, 3, { color: '#ff8a80' }); continue; }
+    if (!p.dead && b.x + b.r > p.x && b.x - b.r < p.x + p.w && b.y + b.r > p.y && b.y - b.r < p.y + p.h && p.iframes <= 0) {
+      hurtPlayer(2, b.x); b.life = 0;
+    }
+  }
+  ebullets = ebullets.filter(b => b.life > 0);
+}
+function updateParticles(dt) {
+  const p = player;
+  for (const q of particles) {
+    q.px = q.x; q.py = q.y;
+    if (q.follow) { q.x += p.x - p.px; q.y += p.y - p.py; }
+    q.vy += q.grav * dt;
+    const d = Math.exp(-q.drag * dt);
+    q.vx *= d; q.vy *= d;
+    q.x += q.vx * dt; q.y += q.vy * dt;
+    q.life -= dt;
+  }
+  particles = particles.filter(q => q.life > 0);
+  for (const g of ghosts) g.life -= dt;
+  ghosts = ghosts.filter(g => g.life > 0);
+}
+
+// =====================================================================
+//  镜头
+// =====================================================================
+let viewW = 400;
+function lockRoom() {
+  if (boss && boss.state !== 'none' && !(boss.state === 'dead' && chipOwned)) return ROOM;
+  if (boss2 && boss2.state !== 'none' && !(boss2.state === 'dead' && magOwned)) return ROOM2;
+  return null;
+}
+function camLocked() { return !!lockRoom(); }
+function camTarget() {
+  const p = player, room = lockRoom();
+  if (room) {
+    const x0 = room.x0 * T, x1 = (room.x1 + 1) * T, w = x1 - x0;
+    const tx = w <= viewW ? x0 - (viewW - w) / 2 : clamp(p.x + p.w / 2 - viewW / 2, x0, x1 - viewW);
+    return { x: tx, y: room === ROOM2 ? (room.top - 0.5) * T : (FLOOR_Y + 2 * T) - VIEW_H };
+  }
+  return {
+    x: clamp(p.x + p.w / 2 + cam.lookX - viewW / 2, 0, Math.max(0, W * T - viewW)),
+    y: clamp(p.y + p.h / 2 - VIEW_H * 0.56, 0, H * T - VIEW_H),
+  };
+}
+function snapCamera() {
+  cam.lookX = player.facing * P.lookahead;
+  const t = camTarget();
+  cam.x = cam.px = t.x; cam.y = cam.py = t.y;
+}
+function updateCamera(dt) {
+  const p = player;
+  cam.lookX = lerp(cam.lookX, p.facing * P.lookahead + p.vx * 0.12, 1 - Math.exp(-dt * 2.5));
+  const t = camTarget();
+  cam.x = lerp(cam.x, t.x, 1 - Math.exp(-dt * P.camLerp));
+  // 垂直方向：起跳时跟得慢（避免晃动），下落/落地时跟得快
+  const ky = p.onGround || p.wallSliding ? P.camLerp * 0.7 : p.vy > 0 ? P.camLerp * 0.8 : P.camLerp * 0.25;
+  cam.y = lerp(cam.y, t.y, 1 - Math.exp(-dt * ky));
+  if (camLocked()) return;
+  // 保证玩家始终在屏幕安全区内
+  const sy = p.y - cam.y;
+  if (sy < VIEW_H * 0.15) cam.y = p.y - VIEW_H * 0.15;
+  if (sy + p.h > VIEW_H * 0.85) cam.y = p.y + p.h - VIEW_H * 0.85;
+  cam.y = clamp(cam.y, 0, H * T - VIEW_H);
+}
+
+// =====================================================================
+//  固定步长更新
+// =====================================================================
+function step(dt) {
+  const p = player;
+  // 输入先写入缓冲，顿帧期间也不会丢失
+  if (pressed.jump) p.jumpBuf = P.buffer;
+  if (pressed.dash) p.dashBuf = 0.1;
+  if (pressed.shoot) p.shootBuf = 0.1;
+
+  p.px = p.x; p.py = p.y; cam.px = cam.x; cam.py = cam.y;
+  for (const e of enemies) { e.px = e.x; e.py = e.y; }
+  for (const b of bullets) { b.px = b.x; b.py = b.y; }
+  for (const b of ebullets) { b.px = b.x; b.py = b.y; }
+  for (const q of bossProj) { q.px = q.x; q.py = q.y; }
+  for (const q of b2Proj) { q.px = q.x; q.py = q.y; }
+  boss.px = boss.x; boss.py = boss.y;
+  boss2.px = boss2.x; boss2.py = boss2.y;
+
+  if (hitstopT > 0) { hitstopT -= dt; return; }
+
+  if (pendingToggle) { pendingToggle = false; toggleChip(); }
+  if (pendingMag) { pendingMag = false; toggleMag(); }
+  if (bossFreezeT > 0) {
+    bossFreezeT -= dt;
+    if (!iceMode) setIce(true);
+    if (bossFreezeT <= 0 && !chipOn) { setIce(false); sfx('thaw'); }
+  }
+
+  if (!goalReached) runTime += dt;
+  updatePlayer(dt);
+  for (const e of enemies) updateEnemy(e, dt);
+  updateBoss(dt);
+  updateBossProj(dt);
+  updateChipItem(dt);
+  updateBoss2(dt);
+  updateB2Proj(dt);
+  updateMagItem(dt);
+  updateBullets(dt);
+  updateParticles(dt);
+  if (p.dead) {
+    deathT -= dt;
+    if (deathT <= 0) respawn(true);
+  } else updateCamera(dt);
+}
+
+// =====================================================================
+//  渲染
+// =====================================================================
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+let scale = 1, dpr = 1;
+function resize() {
+  dpr = Math.min(window.devicePixelRatio || 1, 2);
+  cv.width = Math.round(innerWidth * dpr);
+  cv.height = Math.round(innerHeight * dpr);
+  scale = Math.min(cv.height / VIEW_H, cv.width / 300);
+  viewW = cv.width / scale;
+}
+addEventListener('resize', resize);
+
+function rrect(x, y, w, h, r) {
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(x, y, w, h, r); else ctx.rect(x, y, w, h);
+  ctx.fill();
+}
+
+// =====================================================================
+//  美术：程序化像素图块与背景（霜钟关画风）
+//  启动时按地图把静态地形画进一张大画布，运行时只做裁剪绘制
+// =====================================================================
+const rgb = h => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
+function hash2(x, y) {
+  let n = (Math.imul(x, 374761393) + Math.imul(y, 668265263)) | 0;
+  n = Math.imul(n ^ (n >>> 13), 1274126177);
+  n ^= n >>> 16;
+  return (n >>> 0) / 4294967296;
+}
+function pixelCanvas(w, h, paint) {
+  const c = document.createElement('canvas'); c.width = w; c.height = h;
+  const g = c.getContext('2d'), img = g.createImageData(w, h), d = img.data;
+  const put = (x, y, col, a = 1) => {
+    x |= 0; y |= 0;
+    if (x < 0 || y < 0 || x >= w || y >= h) return;
+    const i = (y * w + x) * 4;
+    if (a >= 1 || d[i + 3] === 0) { d[i] = col[0]; d[i + 1] = col[1]; d[i + 2] = col[2]; d[i + 3] = Math.round(255 * Math.min(1, a)); return; }
+    d[i] = d[i] + (col[0] - d[i]) * a; d[i + 1] = d[i + 1] + (col[1] - d[i + 1]) * a; d[i + 2] = d[i + 2] + (col[2] - d[i + 2]) * a;
+  };
+  paint(put, w, h);
+  g.putImageData(img, 0, 0);
+  return c;
+}
+const AC = {
+  brick: ['#2f3b55', '#384660', '#41507a'].map(rgb), mortar: rgb('#252e44'), bevL: rgb('#56699a'), bevD: rgb('#2a3550'),
+  speck: rgb('#2b3650'), edgeL: rgb('#5d70a0'), edgeD: rgb('#1a2234'),
+  snow0: rgb('#f2f9ff'), snow1: rgb('#d6eafb'), snowS: rgb('#9fbfe0'),
+  ice0: rgb('#e2f5ff'), ice1: rgb('#a6d8f5'), ice2: rgb('#6fa8d6'),
+  plate0: rgb('#e6eef8'), plate1: rgb('#9aa6bb'), plate2: rgb('#6b7890'), plate3: rgb('#3c465a'),
+  spike0: rgb('#ff6b6b'), spike1: rgb('#c9d2e0'), spike2: rgb('#7d889e'), spike3: rgb('#3c465a'),
+};
+let levelCv = null, iceTopCv, iceInCv, doorCv, farCv, midCv;
+function buildArt() {
+  const isRock = (tx, ty) => tx < 0 || tx >= W ? true : ty < 0 || ty >= H ? false : map[ty][tx] === '#';
+  const air = (tx, ty) => tx >= 0 && tx < W && ty >= 0 && ty < H && map[ty][tx] === '.';
+  // 每个实心块离“空气”的距离（0~3），用于让地形内部变暗、表面突出
+  const depth = (tx, ty) => {
+    for (let r = 1; r <= 3; r++)
+      for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++)
+        if (Math.max(Math.abs(dx), Math.abs(dy)) === r && !isRock(tx + dx, ty + dy) && ty + dy >= 0 && ty + dy < H) return r - 1;
+    return 3;
+  };
+  levelCv = pixelCanvas(W * T, H * T, put => {
+    for (let ty = 0; ty < H; ty++) for (let tx = 0; tx < W; tx++) {
+      const c = map[ty][tx], X = tx * T, Y = ty * T;
+      if (c === '#') {
+        const dk = 1 - depth(tx, ty) * 0.14;
+        for (let j = 0; j < T; j++) for (let i = 0; i < T; i++) {
+          const wx = X + i, wy = Y + j, row = wy >> 3, off = (row & 1) * 8;
+          const lx = (wx + off) & 15, ly = wy & 7, bx = (wx + off) >> 4;
+          let col;
+          if (ly === 7 || lx === 15) col = AC.mortar;
+          else {
+            col = AC.brick[Math.floor(hash2(bx, row) * 3)];
+            if (ly === 0 || lx === 0) col = AC.bevL.map((v, k) => (v + col[k]) >> 1);
+            else if (ly === 6 || lx === 14) col = AC.bevD;
+            else if (hash2(wx, wy) < 0.05) col = AC.speck;
+          }
+          put(wx, wy, dk < 1 ? col.map(v => v * dk) : col);
+        }
+        if (!isRock(tx - 1, ty)) for (let j = 0; j < T; j++) put(X, Y + j, AC.edgeL, 0.8);
+        if (!isRock(tx + 1, ty)) for (let j = 0; j < T; j++) put(X + T - 1, Y + j, AC.edgeD);
+        if (air(tx, ty + 1)) {
+          for (let i = 0; i < T; i++) put(X + i, Y + T - 1, AC.edgeD);
+          // 天花板下的冰锥
+          for (let i = 0; i < T; i++) {
+            const wx = X + i;
+            if (hash2(wx, 31) > 0.28) continue;
+            const L = 2 + Math.floor(hash2(wx, 37) * 7);
+            for (let k = 0; k < L; k++) {
+              put(wx, Y + T + k, k < L * 0.35 ? AC.ice0 : k < L - 1 ? AC.ice1 : AC.ice2);
+              if (L > 5 && k < 2) put(wx + 1, Y + T + k, AC.ice1);
+            }
+          }
+        }
+        if (air(tx, ty - 1)) {
+          // 雪顶：厚度起伏，偶尔鼓起和滴落
+          for (let i = 0; i < T; i++) {
+            const wx = X + i, dep = 2 + Math.floor(hash2(wx, 7) * 2.6);
+            if (hash2(wx >> 2, 9) < 0.35) put(wx, Y - 1, AC.snow0);
+            for (let k = 0; k < dep; k++) put(wx, Y + k, k === 0 ? AC.snow0 : k < dep - 1 ? AC.snow1 : AC.snowS);
+            if (hash2(wx, 11) < 0.1) { put(wx, Y + dep, AC.snow1); put(wx, Y + dep + 1, AC.snowS); }
+          }
+        }
+      } else if (c === 'M') {
+        const isM = (a, b) => b >= 0 && b < H && a >= 0 && a < W && map[b][a] === 'M';
+        for (let j = 0; j < T; j++) for (let i = 0; i < T; i++) {
+          let col = (j === 0 || i === 0) ? rgb('#8a96ab') : (j === T - 1 || i === T - 1) ? rgb('#20252f') : (i + j) % 7 === 0 ? rgb('#56607a') : rgb('#4b5568');
+          if ((i === 2 || i === 13) && (j === 2 || j === 13)) col = rgb('#c4ccd9');      // 铆钉
+          if (j === 7 || j === 8) col = i < 8 ? rgb(j === 7 ? '#e04a54' : '#a3202c') : rgb(j === 7 ? '#4a8ae8' : '#2a5ac9');   // 磁极条纹
+          put(X + i, Y + j, col);
+        }
+        // 规则光：外露的边
+        if (!isM(tx, ty + 1)) for (let i = 0; i < T; i++) put(X + i, Y + T - 1, rgb('#c58cff'));
+        if (!isM(tx - 1, ty) && !isRock(tx - 1, ty)) for (let j = 0; j < T; j++) put(X, Y + j, rgb('#c58cff'));
+        if (!isM(tx + 1, ty) && !isRock(tx + 1, ty)) for (let j = 0; j < T; j++) put(X + T - 1, Y + j, rgb('#c58cff'));
+      } else if (c === '-') {
+        for (let i = 0; i < T; i++) {
+          put(X + i, Y, AC.plate0); put(X + i, Y + 1, AC.plate1); put(X + i, Y + 2, AC.plate2);
+          if (i % 4 !== 3) put(X + i, Y + 3, AC.plate3);
+          if (hash2(X + i, Y) < 0.3) put(X + i, Y - 1, AC.snow0);
+        }
+        for (const sx of [2, 12]) for (let j = 3; j < 7; j++) { put(X + sx, Y + j, AC.plate2); put(X + sx + 1, Y + j, AC.plate3); }
+      } else if (c === '^') {
+        for (let j = 4; j < T; j++) for (let i = 0; i < T; i++) {
+          for (const cx of [2.5, 8, 13.5]) {
+            const half = (j - 4) / 11 * 2.7;
+            if (Math.abs(i + 0.5 - cx) <= half) {
+              put(X + i, Y + j, j < 8 ? AC.spike0 : i + 0.5 < cx ? AC.spike1 : AC.spike2);
+              break;
+            }
+          }
+        }
+        for (let i = 0; i < T; i++) put(X + i, Y + T - 1, AC.spike3);
+      }
+    }
+  });
+  // 冰块（规则生效后的水）
+  const icePaint = top => (put) => {
+    for (let j = 0; j < T; j++) for (let i = 0; i < T; i++) {
+      let col = rgb('#8fcbea');
+      const s = (i + j) % 11;
+      if (s === 0 || s === 1) col = rgb('#c9ecff');
+      if (j > 12) col = rgb('#79b5da');
+      put(i, j, col);
+    }
+    put(4, 9, rgb('#e8f8ff')); put(5, 10, rgb('#e8f8ff')); put(11, 5, rgb('#e8f8ff'));
+    if (top) for (let i = 0; i < T; i++) { put(i, 0, rgb('#ffffff')); put(i, 1, rgb('#dff4ff')); }
+  };
+  iceTopCv = pixelCanvas(T, T, icePaint(true));
+  iceInCv = pixelCanvas(T, T, icePaint(false));
+  // 闸门
+  doorCv = pixelCanvas(T, T, put => {
+    for (let j = 0; j < T; j++) for (let i = 0; i < T; i++) {
+      const ly = j % 4;
+      put(i, j, ly === 0 ? rgb('#8a96ab') : ly === 3 ? rgb('#2b3242') : rgb('#4b5568'));
+    }
+    for (let j = 0; j < T; j++) { put(0, j, rgb('#a9b4c8')); put(T - 1, j, rgb('#1d2230')); }
+    put(7, 1, rgb('#ffcf5a')); put(8, 1, rgb('#ffcf5a'));
+  });
+  // 远景：冻结的钟楼群（横向无缝循环）
+  farCv = pixelCanvas(960, 300, (put, w, h) => {
+    const body = rgb('#172036'), edge = rgb('#202d4a'), win = rgb('#26395a'), warm = rgb('#5a4c34'), face = rgb('#2b3d5e'), hand = rgb('#172036');
+    const P = (x, y, c, a) => put(((x % w) + w) % w, y, c, a);
+    // 月亮
+    for (let j = -12; j <= 12; j++) for (let i = -12; i <= 12; i++) {
+      const d = i * i + j * j;
+      if (d <= 144) P(700 + i, 40 + j, d > 110 ? rgb('#9fb4d4') : (i * 7 + j * 3) % 13 === 0 ? rgb('#b9cbe6') : rgb('#d4e2f5'), 0.85);
+    }
+    const towers = [[60, 30, 170], [150, 44, 220], [250, 24, 140], [330, 36, 200], [450, 52, 250], [560, 28, 160], [640, 40, 210], [760, 30, 180], [850, 46, 235]];
+    for (const [cx, tw, th] of towers) {
+      const y0 = h - th, x0 = cx - (tw >> 1);
+      for (let y = y0; y < h; y++) for (let x = x0; x < x0 + tw; x++) P(x, y, x === x0 ? edge : body);
+      const rh = Math.floor(tw * 0.9);
+      for (let k = 0; k < rh; k++) {
+        const half = Math.floor((tw / 2 + 2) * (1 - k / rh));
+        for (let x = cx - half; x <= cx + half; x++) P(x, y0 - k, x === cx - half ? edge : body);
+      }
+      for (let x = x0 - 2; x < x0 + tw + 2; x++) { P(x, y0, edge); if (hash2(x, 3) < 0.3) for (let k = 1; k < 2 + hash2(x, 5) * 4; k++) P(x, y0 + k, rgb('#3a527a')); }
+      const r = Math.floor(tw / 3), cy = y0 + r + 8;
+      for (let j = -r; j <= r; j++) for (let i = -r; i <= r; i++) if (i * i + j * j <= r * r) P(cx + i, cy + j, (i * i + j * j > (r - 1) * (r - 1)) ? edge : face);
+      for (let k = 0; k < r - 2; k++) P(cx, cy - k, hand);
+      for (let k = 0; k < r - 4; k++) P(cx + k, cy + Math.floor(k / 2), hand);
+      for (let y = cy + r + 8; y < h - 6; y += 12) for (let x = x0 + 4; x < x0 + tw - 4; x += 7) {
+        const c = hash2(x, y) < 0.08 ? warm : win;
+        for (let j = 0; j < 4; j++) for (let i = 0; i < 2; i++) P(x + i, y + j, c);
+      }
+    }
+  });
+  // 中景：结冰的水厂管道
+  midCv = pixelCanvas(480, 200, (put, w, h) => {
+    const P = (x, y, c, a) => put(((x % w) + w) % w, y, c, a);
+    const body = rgb('#1b2744'), hi = rgb('#24355a'), lo = rgb('#131c33'), frost = rgb('#33496f');
+    for (const [tx, tw, th] of [[60, 70, 90], [300, 90, 110]]) {
+      for (let y = h - th; y < h; y++) for (let x = tx; x < tx + tw; x++) P(x, y, x < tx + 3 ? hi : x > tx + tw - 4 ? lo : body);
+      for (let x = tx - 1; x < tx + tw + 1; x++) for (let k = 0; k < 2; k++) P(x, h - th - k + 1, k === 1 ? frost : rgb('#3c5378'));
+      for (let y = h - th + 12; y < h; y += 14) for (let x = tx + 2; x < tx + tw - 2; x++) P(x, y, lo);
+    }
+    for (const py of [70, 120]) {
+      for (let x = 0; x < w; x++) for (let k = 0; k < 7; k++) P(x, py + k, k === 0 ? frost : k === 1 ? hi : k > 4 ? lo : body);
+      for (let x = 10; x < w; x += 48) for (let k = -2; k < 9; k++) for (let i = 0; i < 5; i++) P(x + i, py + k, i === 0 ? hi : i === 4 ? lo : body);
+      for (let x = 0; x < w; x++) if (hash2(x, py) < 0.22) { const L = 1 + Math.floor(hash2(x, py + 1) * 5); for (let k = 0; k < L; k++) P(x, py + 7 + k, k < L - 1 ? frost : rgb('#2a3d61')); }
+    }
+    for (const vx of [140, 400]) for (let y = 77; y < h; y++) for (let i = 0; i < 6; i++) P(vx + i, y, i === 0 ? hi : i === 5 ? lo : body);
+  });
+}
+const flakes = Array.from({ length: 90 }, () => ({ x: Math.random() * 640, y: Math.random() * 240, z: 0.25 + Math.random() * 0.85, ph: Math.random() * 6 }));
+let snowCamX = 0, snowCamY = 0;
+function drawLayer(cv, fx, fy, cx, cy, yOff) {
+  const w = cv.width, maxCy = H * T - VIEW_H;
+  const x0 = cx - (((cx * fx) % w) + w) % w;
+  const y = cy + VIEW_H - cv.height + (maxCy - cy) * fy + yOff;
+  for (let x = x0; x < cx + viewW; x += w) ctx.drawImage(cv, Math.round(x), Math.round(y));
+}
+function drawBackground(cx, cy) {
+  const g = ctx.createLinearGradient(0, cy, 0, cy + VIEW_H);
+  g.addColorStop(0, '#111827'); g.addColorStop(1, '#2a3a5e');
+  ctx.fillStyle = g; ctx.fillRect(cx - 2, cy - 2, viewW + 4, VIEW_H + 4);
+  drawLayer(farCv, 0.15, 0.2, cx, cy, -30);
+  drawLayer(midCv, 0.45, 0.45, cx, cy, 20);
+}
+function drawTiles(cx, cy) {
+  const sx = Math.max(0, Math.floor(cx) - 1), sy = Math.max(0, Math.floor(cy) - 1);
+  const sw = Math.min(levelCv.width - sx, Math.ceil(viewW) + 3), sh = Math.min(levelCv.height - sy, VIEW_H + 3);
+  if (sw > 0 && sh > 0) ctx.drawImage(levelCv, sx, sy, sw, sh, sx, sy, sw, sh);
+  const x0 = Math.max(0, Math.floor(cx / T)), x1 = Math.min(W - 1, Math.floor((cx + viewW) / T));
+  const y0 = Math.max(0, Math.floor(cy / T)), y1 = Math.min(H - 1, Math.floor((cy + VIEW_H) / T));
+  const glow = 0.35 + 0.2 * Math.sin(time * 3);
+  for (let j = y0; j <= y1; j++) for (let i = x0; i <= x1; i++) {
+    const c = map[j][i];
+    if (c === 'D') ctx.drawImage(doorCv, i * T, j * T);
+    else if (c === '~' && iceShown(i, j)) {
+      ctx.drawImage(tileAt(i, j - 1) === '~' ? iceInCv : iceTopCv, i * T, j * T);
+      ctx.fillStyle = `rgba(197,140,255,${glow})`;          // 规则光
+      if (tileAt(i - 1, j) !== '~') ctx.fillRect(i * T, j * T, 1, T);
+      if (tileAt(i + 1, j) !== '~') ctx.fillRect(i * T + T - 1, j * T, 1, T);
+    }
+  }
+}
+function drawSnow(cx, cy, rdt) {
+  let dx = cx - snowCamX, dy = cy - snowCamY;
+  snowCamX = cx; snowCamY = cy;
+  if (Math.abs(dx) > 60 || Math.abs(dy) > 60) dx = dy = 0;
+  ctx.fillStyle = '#eef6ff';
+  for (const f of flakes) {
+    f.y += (10 + 16 * f.z) * rdt - dy * f.z * 0.5;
+    f.x += Math.sin(time * 1.2 + f.ph) * 8 * f.z * rdt - dx * f.z * 0.5;
+    f.x = ((f.x % viewW) + viewW) % viewW; f.y = ((f.y % VIEW_H) + VIEW_H) % VIEW_H;
+    ctx.globalAlpha = 0.25 + 0.55 * f.z;
+    const s = f.z > 0.85 ? 2 : 1;
+    ctx.fillRect(Math.round(cx + f.x), Math.round(cy + f.y), s, s);
+  }
+  ctx.globalAlpha = 1;
+}
+
+function iceShown(i, j) {
+  if (!iceMode) return false;
+  if (!freezeWave) return true;
+  const r = (time - freezeWave.t0) * 900;
+  return Math.hypot((i + 0.5) * T - freezeWave.x, (j + 0.5) * T - freezeWave.y) < r;
+}
+// 水画在角色之后，角色看起来“泡在水里”
+function drawWater(cx, cy) {
+  const x0 = Math.max(0, Math.floor(cx / T)), x1 = Math.min(W - 1, Math.floor((cx + viewW) / T));
+  const y0 = Math.max(0, Math.floor(cy / T)), y1 = Math.min(H - 1, Math.floor((cy + VIEW_H) / T));
+  for (let j = y0; j <= y1; j++) for (let i = x0; i <= x1; i++) {
+    if (map[j][i] !== '~' || iceShown(i, j)) continue;
+    const surf = tileAt(i, j - 1) !== '~';
+    const off = surf ? Math.round(1 + Math.sin(time * 3 + i * 0.9)) : 0;
+    ctx.fillStyle = 'rgba(58,143,214,0.5)';
+    ctx.fillRect(i * T, j * T + off, T, T - off);
+    if (surf) { ctx.fillStyle = 'rgba(214,240,255,0.85)'; ctx.fillRect(i * T, j * T + off, T, 1); }
+    ctx.fillStyle = `rgba(197,140,255,${0.35 + 0.2 * Math.sin(time * 3)})`;   // 规则光：能被芯片改写
+    if (tileAt(i - 1, j) !== '~') ctx.fillRect(i * T, j * T + off, 1, T - off);
+    if (tileAt(i + 1, j) !== '~') ctx.fillRect(i * T + T - 1, j * T + off, 1, T - off);
+  }
+}
+
+// ---- 主角精灵（32×32，帧：站立 / 跑动1 / 跑动2 / 空中）----
+const HERO_SRC = 'data:image/png;base64,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';
+const heroImg = new Image();
+let heroTints = null;
+heroImg.onload = () => {
+  const mk = col => {
+    const c = document.createElement('canvas'); c.width = heroImg.width; c.height = heroImg.height;
+    const g = c.getContext('2d'); g.drawImage(heroImg, 0, 0);
+    if (col) { g.globalCompositeOperation = 'source-atop'; g.fillStyle = col; g.fillRect(0, 0, c.width, c.height); }
+    return c;
+  };
+  heroTints = { normal: mk(null), white: mk('rgba(255,255,255,0.92)'), cyan: mk('rgba(190,240,255,0.55)'), yellow: mk('rgba(255,240,140,0.7)'), ghost: mk('rgba(79,195,247,1)') };
+};
+heroImg.src = HERO_SRC;
+// 帧：0 站立 1 呼吸 2-7 跑步循环 8 上升 9 下落 10 冲刺 11 滑墙 12 受伤
+function heroFrame(p) {
+  if (p.hurt > 0) return 12;
+  if (p.wallSliding) return 11;
+  if (p.dashing > 0) return 10;
+  if (!p.onGround) return p.vy < 0 ? 8 : 9;
+  if (Math.abs(p.vx) > 20) return 2 + (Math.floor(p.runPhase) % 6);
+  return Math.floor(time * 1.6) % 2 ? 1 : 0;
+}
+function drawHeroSprite(tint, fr, x, y, face, sx, sy, rot) {
+  ctx.save();
+  ctx.translate(x, y); ctx.rotate(rot); ctx.scale(sx * face, sy);
+  ctx.imageSmoothingEnabled = false;
+  ctx.drawImage(tint, fr * 32, 0, 32, 32, -14, -31, 32, 32);   // 锚点：脚底中心
+  ctx.restore();
+}
+function drawPlayer(a) {
+  const p = player;
+  if (p.dead || !heroTints) return;
+  for (const g of ghosts) {
+    ctx.globalAlpha = (g.life / 0.2) * 0.4;
+    drawHeroSprite(heroTints.ghost, g.fr, g.x + p.w / 2, g.y + p.h, g.f, g.sx, g.sy, 0);
+  }
+  ctx.globalAlpha = 1;
+  if (p.iframes > 0 && p.hurt <= 0 && Math.floor(p.iframes * 24) % 2 === 0) return;
+  const x = lerp(p.px, p.x, a) + p.w / 2, y = lerp(p.py, p.y, a) + p.h;
+  const face = p.wallSliding ? -p.wallDir : p.facing;
+  let tint = heroTints.normal;
+  if (p.chargeLvl > 0 && Math.floor(time * (p.chargeLvl === 2 ? 30 : 18)) % 2) tint = p.chargeLvl === 2 ? heroTints.yellow : heroTints.cyan;
+  if (p.hurt > 0 && Math.floor(time * 30) % 2) tint = heroTints.white;
+  if (p.ceil) drawHeroSprite(tint, heroFrame(p), x, lerp(p.py, p.y, a), face, p.sx, -p.sy, -p.lean);
+  else drawHeroSprite(tint, heroFrame(p), x, y, face, p.sx, p.sy, p.lean);
+}
+
+// ---- 敌人与 Boss 精灵 ----
+const SPR_SRC = {
+  tailor: 'data:image/png;base64,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',
+  walker: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADgAAAAUCAYAAADY6P5TAAADZElEQVR4nL2WS0hUURjHf2MSMUWOWYg6ILiYnkZFPiKiDImSCFrUInpAm9pYlJFFtuhBD+n9gFxUZLuCHkNUhKVWM14b0SnHmqawJCN6aKM5Q2V1Woz35DhznTtZ97+59zv3O9/vfOd855wLfTJbrEJ9CiGE8lFIab2bLVZx8vwNIVasEGp/vRoKrzzdppuXqEImZ0+npRkBUP8JXK0dQAqu1g5yslI49Sj07N8OoDgdlN68T9DfboonuaHwrgaDunmJ6svqteso3bQegLzrC0hufMWdNQoLLuSz3L+SzjYfW4+coHzzBr15DCqjeCazxSoOHj2D4nTg83poaW4icGgivsZX0qnwcS6BjrcA5CoV3Eoaz6iMbETQDxD36hnJS9DrCPBz7WwAFnU9l23xwOLVv+AlxnYJ6Vt3BxyzUwf8OGbX9Ou/+YeS/L/iaSb44Gl3mN3bVx69+yrDOg88zepdDdQ8bKDyXAUtzQi9Sf4vnkzQ5/UAEKgJber7BxzSqYBrMDZ8QBe2zY4Y5Mgtz8jLmUnAXcSe7Y8JuIsYOe1m1CSN4pkgNCtjkpO4u+hbRBC9sp1+wdmCVDa4hzNqRALvlYWk5t+m5+uviNIxkicPmTc70mXngeUSy7ZtnQ9t6wCYnD2dnq+/5LeAuyiirIzkRd2DcyaNjsv2ld+LiOHp3c3O/UvIXVURDWEYLyzBOVe+815ZCEBq/m2AuOx9E/7EysuZSb2rAUDzADCCF7GCjy5d6nsb/Vd2vPrfPHnILF22imHVx/9qkKq86YUIIWhpbgIGHuFNcvObLVYxr3AxY92Vg8aLpZ8FG+XfkBYv0WyxiilTZ+Cqq4YRUykuKePk4b2DBtb06fxAUvK4QfuqvJdeNy+HyqurjskLK9HikjIAcmYV4KqrlrbiDN1R/du0fNT7TY+M4MkEi0vKUJwOaqvszC1cImdGbUuzZunyedvmA7TLcyBPVf9Y6sD1+MTiyXtQLYE0axY+r4euzx9loDRrlm4fVTUPG1CcDt61t0adWTVWbZU9IlZtlV23TyyeSd0T7a9Df+wZmTY5K1qK5bN912G5qp2fu8JWz2heQtDfbvI8aaTnSxcZmTaee1xkZNqkHe0JaH73dwco3bSeq5cvRsAg9MfvedKoK5aeMcXi/QaTBXbKtDHpqgAAAABJRU5ErkJggg==', hopper: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACwAAAAYCAYAAACBbx+6AAACxklEQVR4nNWWQWjTUBzGv4p4yEBTwYOSebCww8YEt4ogE3sSZCDtEIRd3CotO6h0p+0yGe5i8dAyPHQb1K0HQZC1F/HiIbZDUNuIaTektGXY4mVg6iEFT/Ew3zNJkzRdG8Hv8l7+efny6/d/SerCPxbDcoo8fUtT+/KxZLj2aqWGVrPhUteOO4dmrqeZt0e+1mV1kmE5xY6JPgUzr1az4SKe0VgCqeQadoufNevUdSNf04S7ax0UK2iG5RRZqmPAPajIUh1CsYqxUQ9SyTXIUh0bW2mE7gb+jJO0PuAebPO13BK9tE4voVhFLstDKFZREES8L3wFAGxspTXjs83XmmO92lLpV+vUfrksj4IgAgDGxy7SOVEmvQ1/YAoAIIraLiaT6xr/Y3pzWarTMZflcX9mEgAgS3XE46t0VNfN9jrDcko8vkoBM+ntNlgA8AemIIoliGIJtWpZcy4YDGv8NcmQNIgKgohfygmkkmsI3ZvVGKnrkcjDtpQJbCfpEyWanZnG880X9JgkTW/S79Z1AjYD1Yskzr/j/wLrzdVgZjeqVcu44BkyhWZYTkmW121BGenOmZt4efCGHgeHwofATrWOYTll5PG4bcC9J1U6v7b3CgCQG76N4UUPAGD3UQGtZsPV8UvXqXUEVv+wAIAkHNgGPnvjJJ1XIkFa03u4nGodcLgtgsEwAOMtZPQjjUT2LwV2onVkjRraCnRlZRlLS8uWsBT4nP+8beBO+p75ZviK81332bq+Ud+n80ptv83LsdbppX75G8ET0NCDRSzMzwEw/lPlWOvMxLCcMjJ6yXKN1efesdaZiWE5JRpLAAB8E17wO3nNed+EF1cue+0BE0N6cQ+tswLuW8L9NLbyjcYSpunyO3kszM8dDbiX1ln5/ncJf/iUN00XQPcJE1O19DcgsjJ3wtcU+LT7lB0G/JB+dgXcq+9v0YkoFuhTggoAAAAASUVORK5CYII=', flyer: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAADgAAAASCAYAAAAOsR1OAAACWElEQVR4nNWWMUgbURjH/ymZzmIvFRc5aYtDSYqDoK20xWZw6tSAWaSBjhkKIR2SoItTMZch2ikN4qBtoFTQqR3MII1JLhhQqmltoFREgxjQltK4WF6H9F49L3e+k9xJv+Xe+773fb/ve++7u2fDX+F4gYBBat93bBwvEPnJ4iP7sa5licsazyYHjMYTcN/vxdJyEQA0x+GgH9F4AuGgH4WV4pnr5XE46GdKiuMFUlgpYlycRCQUwLg4if679yDlsnQeCQVwp6+XqVBqZD2NaDyBmemXAIDS+qpC/3QxhZZ3Hxr6nfcE9XhHo88wVqvpxmba0dO6q44rODj8odB5vD7Mv501VMiF8zheIFKVEEIIkaqEaWzkvbSCp1k9xwtkYjiNtdIanOIgPofSqjWN9F8qEvLVOcM7axbPfhKgBW8E09M3inc6Aat4dtn46+EAHrdc0wxgRDxen2JOkg4sOF4QGWolj57gq9xHlDt/KhY+6K63wM2OfgD/xs4nl7HwPK3Sy1Le3FDE2Y/9ViVlFU/3NzExnMabxQSdPxoZVNilXBZ7S0eq5PPVOZWOpUXN4Ol+CDheIB326wCAQCwCABCnUtQ+4Kq3WGE+Q3WV461zf7rN4Nm1DEB9Fyo86E6LUylsL79Gm9MNAHif2UVXeysqx1sKH9aCrODpFigHONlObU43bkv1m0XGNQS0tzKBWKXZvEusYCmXpS2ST84g4xqCq+uGgdSNSbN4hu6HHq8P5c0NfPr6jcJK66tNOz0zeIZvGwBwq7uHXnzNKO6ieCqwVWI177+SP3sO+qkUvXxZAAAAAElFTkSuQmCC', turret: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABoAAAAUCAYAAACTQC2+AAAB8ElEQVR4nL2VP0gbURzHP5FOZ1tPBbucVkRFTEW7hEzq0KF/IIWO4lIQBa04FERSKJkCDsXBJZRCoQ0OoV1slA5F2qESsrSpESQKKjrUQXsUvA4ZXof0Xe/dXWyioV94vHt/fr/P+/3u9+7gHNJ0QwghhKYbolKbuvOAANif4PTrXSqFXarGt6YbwjIPAwDZVOrP7OWKbJWINN0QzuZeW9s+sCMI7Y0gHv5Q7Co+7cb2d7H4Mm03aSzfiUinS/3kpG9/FiwgHc0vJKA3zKNQM6PjUQAKW3k2N74AcJpMwOrqmYetX1pGptYtJXUSEh57rGwqBxkwWxgwW2jLmbTlTJqDg2WLQwFJSObFM6bj8RJkJFI2kpP9Ajsf3/DzfjvBlaec7H5jvbPDF6aAnJDFaNTXuVtFy+RX/BVr7bcoWmbZfUp5OyHJ53GYmvI1ymXzALwD6OzwrMc0jRh/r4IHVNjKM/0gAkBoMEK2r5V7r1NUq+ErTZ45m6jphmhqbFAWD+4MMVps8Bj9S/0rb4lZllKBCmh+IUFm/XPVjv0kr4aE1bkhc7MzF4bMzc7Q3XODYN9NuwIDtY7ELRmZXQzJJ8dcC78H4ChzG6Am4+td/YCj6kpf46uOZ2o2hv+YOs+Pr1bF4Jaduk8flpX+IvLz8RuCyw2ZqsOqPgAAAABJRU5ErkJggg==', barrel: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAHCAYAAAABIM1CAAAAhUlEQVR4nGNkYGBg4BKQ+c9AAujsn8HAwMDAUF6YwcDIJSDz/+TpMxiKDhzBFIOBE8eOMjAwMDDcunGFgaWzfwZDR9dEom23sLKGs08d2sTABOPcunGFKBoZnHzDADGAWM3ohpy+95aBpbwwg0FIkJ9oL6AYWJLIwMjAQHoswCx89/4jAwBztz86bnwFAQAAAABJRU5ErkJggg==', bell: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAHAAAAA4CAYAAAAl63xKAAAFpUlEQVR4nO2cT2hcRRzHvxYjYdOENSHbXZs1Jd1u3SRN9iAWonQRrHT3Il5ykHixsscIEiqbUy8SDEWloELRk9VD8KrFYy+Bag/RklTSrWlt64oLMRgbij08D+17+2Yy7+28md/7s/F9Tu/fzLwfX+b3+83MmwcESLZUNbKlqhFkm0GSzleMdL4SqH1P+N2AXbCR8XE0N+rYvv/Aun/n8gXf38FP7IIdPXkKzY06Nut16/4f69/5ap+vlWdLVWNkfJy51tyoM+fb9x90rIjpfMU4evIUc423b7Ne91XEJ/2q2C7ej18t7ro/MFlBb083enu6kUgOGTtbdztKRLt4Ivv6UhPoz+XQn8vh7z/9s883AXl4AwaAPRULefv6UhOB2EcqoFOCMjBZcRWMvx9Vl+qUoPSlJlwF4+9TulSSikzhZubmUTw8yNz79JMvmHM+Rhx66TXr+M4vPwMAtm5ff3QeESFN4U6cnkfx2Ahz7/tvv2HOefv2D45Zx3/9tgYA2L53AwCNkNoVZEtV49xnH3kqs3KzyZz/dO2mdRw1EdP5ijH78eeeyqxc+5U5v7W2ah1Ti7hPp7BIvKnhBKaGE5guJHSqZtogqUgBkXjlYgblYga1coasDZ3yygKKxJsuJDD0WLel6zs677WrLbLKJBGJVytnUHys28KlBmlbqmWVkphsqWrMzM0z16YLCdzdAZZv0wiXHC5YbhRAoEONdL5inDjN2lcrZ7DSAC6t0AjXe/CI5UYBdfuUs1A+WZHtcXz8iyp8siLb4/j45zdaMdBEJ97ZExg3BiYrym3oohPvbq2t4srDy7jy+gHX5/pSE0r1exZQ5D6D6n2J5JDvsVDkPnV73/GuErC01La8in3aPZAq2wRaQwgATPwLE6psE2gNIQAw8U8HbQF1ep+s+wwTnd5nH/8d7yphPdPE+jsvk70bQBQDY+TINwalXKkXtASkdJ9RhNJ9AsB6pvlIREJC7YGTxw6H2bzvHBodY87zjUFyN6olIOVsSxShnG0xoXajkYqB2edaY6HkcCHEN/GHp58dtY57Dx4hqVNJQH4WJiiCGszzszDUmK60sVhlrqsM5j0JKBrEy0Ilup+DedEgXhYV0TNnLuy65tW+SLnQ/xNU2ajyZPabU2PtHyLkwOSrgbZ39o2pQNvrT422f0iAsoBdiaRq0Y6gU+xTcqFvvfIi9Xu0ZfPGD4G19f7bwa98bP/zu1I5zwKGlYGa+J2J+p2BtsNrJiotoE4GSo0fmahOBkqNF/viLLTDUUpiHu5sEb9GtAjNvv3PeC6iJOCXy6vtHxLgtCLPrwuGvbB79utlpXJOK/L2dUGAdmHXkwsNO4Hxm7ATGBU6MgaG+YETNY3nk1pzolIChpmBOq1KUGaiXjPQ2sU5qqYdl5dk7evIHhg2CzPnULs4h9q/wU0uOBFJAe3rglFm4akXlMrZ1wUBIHN1S+hKZZAWMGoJDHUc9JrAmL2QiszVLWZ5STYOthUwSjMwPBRxUGcGxm9XKmNfoC7UqRe3+7gp6p9XmK7UqRfzHzfx6HxeISUgpfuUFZGPgyIRqdyozviPd6WyIvJxUCSijBt13c7ktvt2arj1TajXLWWyMzIAOysDiGdmVHfxuu2+LRdb34R63VImOyMDsLMygHhmxm0Xr2MPdIt9dvFU8OJKZTJSlVjoFvvs4qngxZXyPVGEm32uLjRqmSdA60qjOHXm1ZUKBZR1nX4g0wtFInrZhi3rOv1ApheKRHTahr3Lt2ZLVePd2hnlFwyTDxcW28bDdL5ivHf+fFCvRMoHs7O74iFzIvq3WdDw/1nxitu/10T/NgsaXfv4f69ZLjQK4lHQ29MtdKdREI+C/lyOcaf7gL0jnon5Az3zfK+IZ9Kfy1n2WV0xiP3nQcL/smOv2xcTExMTExMTExMTHP8BpN8ugPBdyQwAAAAASUVORK5CYII=', clapper: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAoAAAAYCAYAAADDLGwtAAAAqElEQVR4nO2TMQ7CMAwArxFTpuykMzyBoXNfAlI3voNUHsAbmDvAxoTECO0DupDVDMhVSQtih5us+BJblgM9rPNyu4usd2exzks/Z/iSv/g74iQ+mE/TUTHRwDov28OlSxxPV8oiJ7RN0pWOJWW12aN7aQBUylJLltqBDGDiTR7DOi/fj0eb/URom8QALBczAKo6UNXhRSqL/Pmi3lA5lt5WtM4PvirAA8y1OCOWsAWsAAAAAElFTkSuQmCC',
+};
+const SPR = {};
+function tintCanvas(img, col) {
+  const c = document.createElement('canvas'); c.width = img.width; c.height = img.height;
+  const g = c.getContext('2d'); g.drawImage(img, 0, 0);
+  if (col) { g.globalCompositeOperation = 'source-atop'; g.fillStyle = col; g.fillRect(0, 0, c.width, c.height); }
+  return c;
+}
+for (const [k, src] of Object.entries(SPR_SRC)) {
+  const img = new Image();
+  img.onload = () => { SPR[k] = { normal: tintCanvas(img, null), white: tintCanvas(img, 'rgba(255,255,255,0.95)') }; };
+  img.src = src;
+}
+const EN_FRAME = { walker: [28, 20], hopper: [22, 24], flyer: [28, 18] };
+function drawEnemies(a) {
+  for (const e of enemies) {
+    if (!e.alive) continue;
+    const x = lerp(e.px, e.x, a), y = lerp(e.py, e.y, a);
+    if (x > cam.x + viewW + 30 || x + e.w < cam.x - 30) continue;
+    const pick = k => SPR[k] && (e.flash > 0 ? SPR[k].white : SPR[k].normal);
+    const cx = Math.round(x + e.w / 2);
+    if (e.type === 'turret') {
+      const base = pick('turret'), bar = pick('barrel');
+      if (!base || !bar) continue;
+      const face = sign(player.x - e.x) || 1;
+      const pvx = cx + face * 1.5, pvy = Math.round(y + e.h) - 12;
+      const ang = Math.atan2(player.y + player.h / 2 - pvy, player.x + player.w / 2 - pvx);
+      ctx.save(); ctx.translate(pvx, pvy); ctx.rotate(ang);
+      const kick = e.sq < 0.95 ? -2 : 0;                 // 开火后坐
+      ctx.drawImage(bar, kick, -3.5); ctx.restore();
+      ctx.save(); ctx.translate(cx, Math.round(y + e.h)); ctx.scale(face / Math.sqrt(e.sq), e.sq);
+      ctx.drawImage(base, -13, -20); ctx.restore();
+      if (e.timer < 0.35 && Math.floor(time * 20) % 2) { ctx.fillStyle = '#fff7b0'; ctx.fillRect(cx + face - 1, Math.round(y + e.h) - 21, 3, 3); }
+      continue;
+    }
+    const img = pick(e.type);
+    if (!img) continue;
+    const [fw, fh] = EN_FRAME[e.type];
+    let fr = 0, face = 1, by = Math.round(y + e.h);
+    if (e.type === 'walker') { fr = Math.floor(e.t * 8) % 2; face = e.dir; }
+    else if (e.type === 'hopper') { fr = e.onGround ? 0 : 1; face = sign(player.x - e.x) || 1; }
+    else { fr = Math.floor(e.t * 14) % 2; by = Math.round(y + e.h / 2 + fh / 2 - 2); face = sign(player.x - e.x) || 1; }
+    ctx.save(); ctx.translate(cx, by); ctx.scale(face / Math.sqrt(e.sq), e.sq);
+    ctx.drawImage(img, fr * fw, 0, fw, fh, -fw / 2, -fh, fw, fh);
+    ctx.restore();
+  }
+}
+
+function drawBullets(a) {
+  for (const b of bullets) {
+    const x = lerp(b.px, b.x, a), y = lerp(b.py, b.y, a);
+    if (b.lvl > 0) {
+      ctx.globalAlpha = 0.35; ctx.fillStyle = b.col;
+      ctx.beginPath(); ctx.ellipse(x - sign(b.vx) * b.r, y, b.r * 1.8, b.r * 0.8, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+    ctx.fillStyle = b.col;
+    ctx.beginPath(); ctx.arc(x, y, b.r, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.beginPath(); ctx.arc(x, y, b.r * 0.5, 0, Math.PI * 2); ctx.fill();
+  }
+  for (const b of ebullets) {
+    const x = lerp(b.px, b.x, a), y = lerp(b.py, b.y, a);
+    ctx.fillStyle = Math.floor(time * 16) % 2 ? '#ff8a80' : '#ffcdd2';
+    ctx.beginPath(); ctx.arc(x, y, b.r, 0, Math.PI * 2); ctx.fill();
+  }
+}
+
+function drawParticles() {
+  for (const q of particles) {
+    ctx.globalAlpha = clamp(q.life / q.max, 0, 1);
+    ctx.fillStyle = q.color;
+    const s = q.size * (0.4 + 0.6 * q.life / q.max);
+    ctx.fillRect(q.x - s / 2, q.y - s / 2, s, s);
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawWorldDecor() {
+  ctx.font = '7px system-ui,"PingFang SC","Microsoft YaHei",sans-serif';
+  ctx.textAlign = 'left';
+  for (const s of signs) {
+    if (s.x > cam.x + viewW || s.x + 160 < cam.x) continue;
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    const w = ctx.measureText(s.text).width + 8;
+    ctx.fillRect(s.x - 4, s.y - 9, w, 13);
+    ctx.fillStyle = '#c9ced8';
+    ctx.fillText(s.text, s.x, s.y);
+  }
+  checkpoints.forEach((c, i) => {
+    if (i === 0) return;
+    ctx.fillStyle = '#6b7080'; ctx.fillRect(c.x, c.y - 32, 2, 32);
+    ctx.fillStyle = i <= checkpoint ? '#81c784' : '#7a7f8c';
+    const wv = Math.sin(time * 6 + i) * 1.5;
+    ctx.beginPath(); ctx.moveTo(c.x + 2, c.y - 32); ctx.lineTo(c.x + 14, c.y - 28 + wv); ctx.lineTo(c.x + 2, c.y - 23); ctx.fill();
+  });
+  // 终点门
+  ctx.fillStyle = goalReached ? '#81c784' : '#4a4f5c';
+  ctx.fillRect(GOAL.x, GOAL.y, 3, GOAL.h); ctx.fillRect(GOAL.x + GOAL.w - 3, GOAL.y, 3, GOAL.h); ctx.fillRect(GOAL.x, GOAL.y, GOAL.w, 3);
+  ctx.globalAlpha = 0.15 + 0.1 * Math.sin(time * 4);
+  ctx.fillStyle = '#81c784'; ctx.fillRect(GOAL.x + 3, GOAL.y + 3, GOAL.w - 6, GOAL.h - 3);
+  ctx.globalAlpha = 1;
+  ctx.fillStyle = '#c9ced8'; ctx.textAlign = 'center'; ctx.fillText('GOAL', GOAL.x + GOAL.w / 2, GOAL.y - 4);
+  ctx.textAlign = 'left';
+}
+
+function drawHUD(fps) {
+  const u = scale;   // HUD 与世界同比例缩放
+  ctx.setTransform(u, 0, 0, u, 0, 0);
+  const p = player;
+  // 血条
+  ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(8, 8, 10, MAXHP * 4 + 4);
+  for (let i = 0; i < MAXHP; i++) {
+    ctx.fillStyle = i < p.hp ? (p.hp <= 4 ? '#ff8a65' : '#fff59d') : '#3a3d46';
+    ctx.fillRect(10, 10 + (MAXHP - 1 - i) * 4, 6, 3);
+  }
+  // Boss 血条
+  const hb = boss.state !== 'none' && boss.state !== 'dead' ? boss : boss2.state !== 'none' && boss2.state !== 'dead' ? boss2 : null;
+  if (hb) {
+    const hp = hb.state === 'intro' ? Math.floor(hb.hpShown) : hb.hp;
+    ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(22, 8, 10, BOSS_MAXHP * 2.3 + 4);
+    for (let i = 0; i < BOSS_MAXHP; i++) {
+      ctx.fillStyle = i < hp ? (hb === boss ? '#81d4fa' : '#ff9c45') : '#3a3d46';
+      ctx.fillRect(24, 10 + (BOSS_MAXHP - 1 - i) * 2.3, 6, 1.6);
+    }
+  }
+  // 芯片插槽
+  const sy0 = 16 + MAXHP * 4;
+  ctx.font = '7px system-ui,"PingFang SC","Microsoft YaHei",sans-serif';
+  ctx.textAlign = 'center';
+  for (let k = 0; k < 2; k++) {
+    const sx0 = 8, syk = sy0 + k * 14;
+    const has = k === 0 ? chipOwned : magOwned, on = k === 0 ? chipOn : magOn;
+    ctx.fillStyle = has ? (on ? (k === 0 ? '#81d4fa' : '#ffb070') : '#37474f') : 'rgba(0,0,0,0.4)';
+    ctx.fillRect(sx0, syk, 11, 11);
+    ctx.strokeStyle = has && on ? '#ffffff' : '#4a4f5c'; ctx.lineWidth = 0.6; ctx.strokeRect(sx0, syk, 11, 11);
+    ctx.fillStyle = has ? (on ? '#1a1020' : '#90a4ae') : '#4a4f5c';
+    ctx.fillText(has ? (k === 0 ? '霜' : '磁') : '·', sx0 + 5.5, syk + 8.5);
+  }
+  if (chipOn && magOn) {                                   // 双芯片组合提示
+    ctx.fillStyle = `rgba(197,140,255,${0.6 + 0.3 * Math.sin(time * 4)})`;
+    ctx.fillText('磁冰', 13.5, sy0 + 36);
+  }
+  ctx.textAlign = 'left';
+  // 信息
+  ctx.font = '7px ui-monospace,Menlo,Consolas,monospace';
+  ctx.textAlign = 'right';
+  ctx.fillStyle = '#c9ced8';
+  const vw = viewW;
+  ctx.fillText(`TIME ${runTime.toFixed(2)}`, vw - 8, 14);
+  ctx.fillStyle = '#7a8090';
+  ctx.fillText(`速度 ${Math.abs(p.vx).toFixed(0).padStart(3)}  ${fps}fps`, vw - 8, 24);
+  const st = p.dead ? '' : p.dashing > 0 ? '冲刺' : p.wallSliding ? '滑墙' : p.dashJump ? '冲刺跳' : !p.onGround ? '空中' : Math.abs(p.vx) > 5 ? '奔跑' : '站立';
+  ctx.fillText(st, vw - 8, 33);
+  ctx.textAlign = 'left';
+  if (showHint) {
+    ctx.fillStyle = 'rgba(200,205,215,0.55)';
+    ctx.fillText('Tab 调参  Q/E 芯片  1~0 传送  R 存档  T 重来  M 静音  N 音乐  H 隐藏', 24, VIEW_H - 8);
+  }
+  if (goalReached) {
+    ctx.textAlign = 'center';
+    ctx.fillStyle = 'rgba(0,0,0,0.5)'; ctx.fillRect(vw / 2 - 90, 34, 180, 34);
+    ctx.fillStyle = '#81c784'; ctx.font = 'bold 11px system-ui,"PingFang SC",sans-serif';
+    ctx.fillText('原型关卡完成！', vw / 2, 49);
+    ctx.fillStyle = '#c9ced8'; ctx.font = '7px system-ui,"PingFang SC",sans-serif';
+    ctx.fillText(`用时 ${goalTime.toFixed(2)} 秒　按 T 再挑战`, vw / 2, 61);
+    ctx.textAlign = 'left';
+  }
+  if (msg) {
+    ctx.textAlign = 'center';
+    ctx.globalAlpha = clamp(msg.t * 3, 0, 1);
+    ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(vw / 2 - 110, 8, 220, msg.sub ? 34 : 22);
+    ctx.fillStyle = '#e1f5fe'; ctx.font = 'bold 11px system-ui,"PingFang SC",sans-serif';
+    ctx.fillText(msg.title, vw / 2, 23);
+    if (msg.sub) { ctx.fillStyle = '#b0bec5'; ctx.font = '7px system-ui,"PingFang SC",sans-serif'; ctx.fillText(msg.sub, vw / 2, 35); }
+    ctx.globalAlpha = 1; ctx.textAlign = 'left';
+  }
+  if (flashT > 0) { ctx.fillStyle = `rgba(255,255,255,${clamp(flashT * 2.5, 0, 0.9)})`; ctx.fillRect(0, 0, vw, VIEW_H); }
+  if (p.dead) {
+    ctx.fillStyle = `rgba(0,0,0,${clamp(1 - deathT, 0, 0.6)})`;
+    ctx.fillRect(0, 0, vw, VIEW_H);
+  }
+}
+
+let fpsAcc = 0, fpsN = 0, fpsShow = 60;
+function render(a, rdt) {
+  time += rdt;
+  fpsAcc += rdt; fpsN++;
+  if (fpsAcc > 0.5) { fpsShow = Math.round(fpsN / fpsAcc); fpsAcc = 0; fpsN = 0; }
+  shakeT = Math.max(0, shakeT - rdt * 2.2);
+  flashT = Math.max(0, flashT - rdt);
+  musicDirector();
+  if (msg) { msg.t -= rdt; if (msg.t <= 0) msg = null; }
+  const s2 = shakeT * shakeT;
+  const sx = (Math.random() * 2 - 1) * s2 * 7, sy = (Math.random() * 2 - 1) * s2 * 7;
+  let cx = lerp(cam.px, cam.x, a) + sx, cy = lerp(cam.py, cam.y, a) + sy;
+  // 对齐到物理像素，避免图块边缘闪烁
+  cx = Math.round(cx * scale) / scale; cy = Math.round(cy * scale) / scale;
+
+  ctx.setTransform(scale, 0, 0, scale, -cx * scale, -cy * scale);
+  ctx.imageSmoothingEnabled = false;
+  drawBackground(cx, cy);
+  drawWorldDecor();
+  drawTiles(cx, cy);
+  drawEnemies(a);
+  drawBoss(a);
+  drawBoss2(a);
+  drawChipItem();
+  drawMagItem();
+  drawPlayer(a);
+  drawBullets(a);
+  drawBossProj(a);
+  drawB2Proj(a);
+  drawWater(cx, cy);
+  drawParticles();
+  drawSnow(cx, cy, rdt);
+  drawHUD(fpsShow);
+}
+
+// =====================================================================
+//  主循环：固定步长 + 插值渲染
+// =====================================================================
+let last = performance.now(), acc = 0;
+function frame(now) {
+  let dt = (now - last) / 1000; last = now;
+  if (dt > 0.1) dt = 0.1;
+  pollGamepad();
+  acc += dt;
+  while (acc >= STEP) {
+    step(STEP);
+    acc -= STEP;
+    for (const a of ACTIONS) pressed[a] = false;
+  }
+  render(acc / STEP, dt);
+  requestAnimationFrame(frame);
+}
+
+// =====================================================================
+//  调参面板
+// =====================================================================
+const panel = document.getElementById('panel');
+const fmt = v => (Math.abs(v) < 10 && v % 1 !== 0) ? (+v).toFixed(2) : String(Math.round(v * 100) / 100);
+function buildPanel() {
+  let html = '<h3>手感调参<small>Tab 关闭 · 实时生效</small></h3>';
+  for (const d of PARAM_DEFS) {
+    if (d[0] === 'g') { html += `<div class="grp">${d[1]}</div>`; continue; }
+    const [k, label, min, max, st] = d;
+    html += `<label><span>${label}</span><input type="range" data-k="${k}" min="${min}" max="${max}" step="${st}" value="${P[k]}"><b id="v_${k}">${fmt(P[k])}</b></label>`;
+  }
+  html += '<div class="btns"><button id="bReset">恢复默认</button><button id="bCopy">复制参数 JSON</button></div>';
+  panel.innerHTML = html;
+  panel.querySelectorAll('input').forEach(inp => inp.addEventListener('input', () => {
+    const k = inp.dataset.k;
+    P[k] = parseFloat(inp.value);
+    document.getElementById('v_' + k).textContent = fmt(P[k]);
+    saveParams();
+  }));
+  document.getElementById('bReset').onclick = () => { P = Object.assign({}, DEFAULTS); saveParams(); buildPanel(); };
+  document.getElementById('bCopy').onclick = e => {
+    const txt = JSON.stringify(P, null, 2);
+    (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject()).then(
+      () => { e.target.textContent = '已复制 ✓'; },
+      () => {
+        let ta = document.getElementById('pjson');
+        if (!ta) { ta = document.createElement('textarea'); ta.id = 'pjson'; ta.style.cssText = 'width:100%;height:120px;margin-top:8px;background:#111;color:#8fd3ff;border:1px solid #444;font-size:11px'; panel.appendChild(ta); }
+        ta.value = txt; ta.select();
+      });
+    setTimeout(() => { e.target.textContent = '复制参数 JSON'; }, 1500);
+  };
+}
+function togglePanel() {
+  const show = panel.style.display !== 'block';
+  panel.style.display = show ? 'block' : 'none';
+  if (show) buildPanel();
+  else if (document.activeElement) document.activeElement.blur();
+}
+
+// =====================================================================
+//  开始界面 / 触屏
+// =====================================================================
+const startEl = document.getElementById('start');
+function hideStart() {
+  initAudio();
+  if (startEl.style.display !== 'none') startEl.style.display = 'none';
+}
+startEl.addEventListener('pointerdown', hideStart);
+
+const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
+if (isTouch) {
+  document.getElementById('touch').style.display = 'block';
+  const pad = document.getElementById('pad'), knob = document.getElementById('knob');
+  let padId = null;
+  const padUpdate = e => {
+    const r = pad.getBoundingClientRect();
+    const dx = e.clientX - (r.left + r.width / 2), dy = e.clientY - (r.top + r.height / 2);
+    const m = Math.min(1, 50 / (Math.hypot(dx, dy) || 1));
+    knob.style.transform = `translate(${dx * m}px,${dy * m}px)`;
+    setSrc(tc, 'left', dx < -18); setSrc(tc, 'right', dx > 18);
+    setSrc(tc, 'down', dy > 32); setSrc(tc, 'up', dy < -32);
+  };
+  const padEnd = () => {
+    padId = null; knob.style.transform = '';
+    for (const a of ['left', 'right', 'up', 'down']) setSrc(tc, a, false);
+  };
+  pad.addEventListener('pointerdown', e => { hideStart(); padId = e.pointerId; pad.setPointerCapture(e.pointerId); padUpdate(e); });
+  pad.addEventListener('pointermove', e => { if (e.pointerId === padId) padUpdate(e); });
+  pad.addEventListener('pointerup', padEnd); pad.addEventListener('pointercancel', padEnd);
+  document.querySelectorAll('#tbtns .tb').forEach(btn => {
+    const a = btn.dataset.a;
+    const on = e => { e.preventDefault(); hideStart(); btn.setPointerCapture(e.pointerId); btn.classList.add('on'); setSrc(tc, a, true); };
+    const off = () => { btn.classList.remove('on'); setSrc(tc, a, false); };
+    btn.addEventListener('pointerdown', on);
+    btn.addEventListener('pointerup', off); btn.addEventListener('pointercancel', off);
+  });
+  document.getElementById('tchip').addEventListener('pointerdown', e => { e.preventDefault(); pendingToggle = true; });
+  document.getElementById('tmag').addEventListener('pointerdown', e => { e.preventDefault(); pendingMag = true; });
+  document.getElementById('tset').addEventListener('pointerdown', e => { e.preventDefault(); togglePanel(); });
+}
+
+// =====================================================================
+resize();
+restartAll();
+buildArt();
+requestAnimationFrame(frame);
+// 暴露给测试脚本
+window.__game = { get boss2() { return boss2; }, get magOn() { return magOn; }, get magOwned() { return magOwned; }, get magItem() { return magItem; }, hurtBoss2(d) { damageBoss2(d, 1); }, teleport(i) { teleport(i); }, mag() { pendingMag = true; }, get boss() { return boss; }, get iceMode() { return iceMode; }, get chipOwned() { return chipOwned; }, get chipOn() { return chipOn; }, get chipItem() { return chipItem; }, toggle() { pendingToggle = true; }, hurtBoss(d) { damageBoss(d, 1); }, get player() { return player; }, get enemies() { return enemies; }, P, step, kb, pressed, setSrc, STEP };
+</script>
+</body>
+</html>
