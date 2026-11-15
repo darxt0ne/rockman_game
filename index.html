@@ -78,6 +78,8 @@ const PARAM_DEFS = [
   ['turnAccel', '转身加速度', 300, 9000, 50],
   ['g', '跳跃与空中'],
   ['jumpHeight', '最大跳跃高度px', 20, 140, 1],
+  ['doubleJumpHeight', '二段跳高度px', 0, 120, 1],
+  ['airJumps', '空中跳跃次数', 0, 3, 1],
   ['gravity', '重力', 500, 4000, 25],
   ['fallMult', '下落重力倍数', 1, 3, 0.05],
   ['jumpCut', '松键截断系数', 0.1, 1, 0.05],
@@ -104,7 +106,7 @@ const PARAM_DEFS = [
 ];
 const DEFAULTS = {
   runSpeed: 150, groundAccel: 1800, groundDecel: 2400, turnAccel: 3600,
-  jumpHeight: 66, gravity: 1500, fallMult: 1.65, jumpCut: 0.4, apexHang: 0.5, apexThreshold: 45,
+  jumpHeight: 66, doubleJumpHeight: 50, airJumps: 1, gravity: 1500, fallMult: 1.65, jumpCut: 0.4, apexHang: 0.5, apexThreshold: 45,
   maxFall: 480, airAccel: 1250, airDecel: 450, coyote: 0.1, buffer: 0.12, cornerCorrect: 6,
   dashSpeed: 300, dashTime: 0.24, wallSlide: 95, wallJumpX: 150, wallJumpHeight: 60, wallLock: 0.1,
   camLerp: 9, lookahead: 40, hitstop: 1, shake: 1,
@@ -130,7 +132,8 @@ const curves = [];     // { x0, x1, f(x, t) → 世界 y, label, color, hazard }
 const lasers = [];     // { x, y0, y1, period, phase }
 let curveT = 0;        // 曲线时间（「函数·定格」开启时停止）
 let funcOwned = false, funcOn = false, funcItem = null;
-const addCurve = (x0, x1, f, label, color, hazard = false) => { const c = { x0, x1, f, label, color, hazard, hazardNow: false }; curves.push(c); return c; };
+const addCurve = (x0, x1, f, label, color, hazard = false, ghost = false) => { const c = { x0, x1, f, label, color, hazard, ghost, hazardNow: false }; curves.push(c); return c; };
+const curveSolid = c => !c.hazardNow && !(c.ghost && !funcOn);   // ghost：只是投影，定格后才是实体
 function buildFunctionStage() {
   fill(0, 22, W, 4); fill(0, 0, 1, 22);
   checkpoints.push({ x: 3 * T, y: 22 * T });
@@ -156,10 +159,10 @@ function buildFunctionStage() {
   checkpoints.push({ x: 112 * T, y: 22 * T });
   // ③ 抛物线电梯
   fill(116, 22, 15, 4, '.');
-  sign_(113, 11, '抛物线上升时起跳，能借力跳得更高');
+  sign_(113, 11, '站上抛物线，趁它上升时起跳 + 二段跳');
   addCurve(116 * T, 131 * T, (x, t) => { const c = 20 * T + 40 * Math.sin(1.8 * t), d = x - 123.5 * T; return c + d * d / 180; }, 'y = (x − h)²/180 + c(t)', '#ffd166');
-  fill(131, 13, 10, 9);
-  spawns.push(['hopper', 136, 12]);
+  fill(131, 14, 10, 8);
+  spawns.push(['hopper', 136, 13]);
   checkpoints.push({ x: 143 * T, y: 22 * T });
   // ④ 取整阶梯
   fill(146, 22, 24, 4, '.');
@@ -182,9 +185,9 @@ function buildFunctionStage() {
   fill(240, 22, 20, 4, '.');
   addCurve(240 * T, 260 * T, (x, t) => 21 * T - 30 * Math.sin((x - 240 * T) / 10 - 9 * t), 'y = 30·sin(x − 9t)  高频电流：定格后才能踩', '#ff5a7a', true);
   checkpoints.push({ x: 262 * T, y: 22 * T });
-  sign_(261, 12, '挑准时机定格，让斜坡刚好通向高台');
+  sign_(261, 12, '虚线只是投影：挑准时机定格，让斜坡变成通向高台的桥');
   fill(265, 22, 17, 4, '.');
-  addCurve(264.5 * T, 282 * T, (x, t) => 22 * T - (x - 264.5 * T) * (0.25 + 0.3 * Math.sin(2.6 * t)), 'y = k(t)·x', '#ff6ad5');
+  addCurve(264.5 * T, 282 * T, (x, t) => 22 * T - (x - 264.5 * T) * (0.25 + 0.3 * Math.sin(2.6 * t)), 'y = k(t)·x  投影：定格后才是实体', '#ff6ad5', false, true);
   fill(282, 13, 8, 9);
   fill(W - 2, 0, 2, 22);
   GOAL = { x: 292 * T, y: 9 * T, w: 2 * T, h: 4 * T };
@@ -224,7 +227,7 @@ function playerCurves(p, dt, prevBottom, prevFx) {
   const fx = p.x + p.w / 2, bottom = p.y + p.h;
   if (p.curve) {
     const c = p.curve;
-    if (fx < c.x0 || fx > c.x1 || p.drop > 0 || c.hazardNow) p.curve = null;
+    if (fx < c.x0 || fx > c.x1 || p.drop > 0 || !curveSolid(c)) p.curve = null;
     else {
       const cy = c.f(fx, curveT), dy = cy - bottom;
       if (dy > 8) p.curve = null;                             // 曲线突然下坠：脱离
@@ -237,7 +240,7 @@ function playerCurves(p, dt, prevBottom, prevFx) {
   }
   if (!p.curve && p.vy >= 0 && p.drop <= 0) {
     for (const c of curves) {
-      if (fx < c.x0 || fx > c.x1 || c.hazardNow) continue;
+      if (fx < c.x0 || fx > c.x1 || !curveSolid(c)) continue;
       const cyNow = c.f(fx, curveT), cyPrev = c.f(prevFx, curveT - (funcOn ? 0 : dt));
       if (prevBottom <= cyPrev + 2 && bottom >= cyNow - 0.5) {
         p.curve = c; p.y = cyNow - p.h; p.vy = 0; p.onGround = true; p.curveVy = 0;
@@ -250,7 +253,8 @@ function drawCurves(cx) {
   for (const c of curves) {
     const a = Math.max(c.x0, cx - 4), b = Math.min(c.x1, cx + viewW + 4);
     if (a >= b) continue;
-    const hz = c.hazardNow, col = hz ? (Math.floor(time * 20) % 2 ? '#ff5a7a' : '#ffd0da') : c.color;
+    const hz = c.hazardNow, ghost = c.ghost && !funcOn, col = hz ? (Math.floor(time * 20) % 2 ? '#ff5a7a' : '#ffd0da') : c.color;
+    if (ghost) { ctx.setLineDash([4, 4]); ctx.lineDashOffset = -time * 20; }
     ctx.beginPath();
     for (let x = a; x <= b; x += 2) {
       let y = c.f(x, curveT);
@@ -258,7 +262,7 @@ function drawCurves(cx) {
       if (x === a) ctx.moveTo(x, y); else ctx.lineTo(x, y);
     }
     ctx.strokeStyle = col; ctx.globalAlpha = 0.25; ctx.lineWidth = 5; ctx.stroke();
-    ctx.globalAlpha = 1; ctx.lineWidth = 1.6; ctx.stroke();
+    ctx.globalAlpha = ghost ? 0.6 : 1; ctx.lineWidth = 1.6; ctx.stroke(); ctx.globalAlpha = 1; ctx.setLineDash([]);
     if (funcOn) { ctx.strokeStyle = 'rgba(255,209,102,0.6)'; ctx.lineWidth = 0.6; ctx.stroke(); }
     if (c.label && c.x0 > cx - 200 && c.x0 < cx + viewW) {
       ctx.font = '6px ui-monospace,Menlo,Consolas,monospace'; ctx.fillStyle = c.color; ctx.globalAlpha = 0.75;
@@ -645,7 +649,8 @@ fill(202, 22, 4, 2, '~'); fill(212, 22, 4, 2, '~');   // 房间里的两个水�
 // --- 第9段：规则试炼（拿到芯片后） ---
 checkpoints.push({ x: 223 * T, y: 22 * T });
 sign_(223, 16, 'Q 切换规则芯片「霜钟」：水 ⇄ 冰');
-fill(228, 22, 14, 3, '~'); fill(228, 24, 14, 1, '^');   // 宽水池，池底尖刺
+fill(224, 22, 18, 3, '~'); fill(224, 24, 18, 1, '^');   // 宽水池，池底尖刺
+fill(224, 0, 18, 19);                          // 低矮天花板：跳不起弧线，只能冻住水面滑过去
 sign_(243, 16, '关掉规则才能潜水通过 ↓');
 fill(250, 0, 3, 22);                           // 顶天立地的墙
 fill(247, 22, 9, 3, '~');                      // 墙下的水道
@@ -664,16 +669,17 @@ fill(302, 0, 22, 7); fill(302, 7, 22, 1, 'M');        // 金属天花板
 fill(302, 8, 1, 6, 'M'); fill(323, 8, 1, 6, 'M');     // 两侧上方的金属墙
 // --- 第12段：磁暴试炼 + 双芯片组合 ---
 checkpoints.push({ x: 327 * T, y: 22 * T });
-sign_(327, 16, 'E 切换规则芯片「磁暴」：吸附金属');
-fill(330, 15, 16, 1, 'M');                            // 金属横梁
-fill(332, 22, 12, 4, '.');                            // 大坑
-checkpoints.push({ x: 346 * T, y: 22 * T });
-sign_(344, 12, '两块芯片同时开启：冰也会带磁性');
-fill(352, 0, 14, 16);                                 // 悬空岩体
-fill(352, 16, 14, 2, '~');                            // 悬在空中的水
-fill(355, 22, 11, 4, '.');                            // 大坑（冰下留 3 格落脚处）
+sign_(320, 13, 'E 切换规则芯片「磁暴」：吸附金属');
+fill(330, 0, 20, 18);                                 // 横梁上方是岩体：只能从下面吸附
+fill(330, 18, 20, 1, 'M');                            // 金属天花板（压低，跳不过去）
+fill(332, 22, 16, 4, '.');                            // 大坑
+checkpoints.push({ x: 349 * T, y: 22 * T });
+sign_(348, 12, '两块芯片同时开启：冰也会带磁性');
+fill(354, 0, 29, 17);                                 // 悬空岩体
+fill(354, 17, 29, 2, '~');                            // 悬在空中的水（压低，跳不过去）
+fill(357, 22, 26, 4, '.');                            // 大坑（冰下留 3 格落脚处）
 fill(W - 2, 0, 2, 22);
-GOAL = { x: 380 * T, y: 18 * T, w: 2 * T, h: 4 * T };
+GOAL = { x: 386 * T, y: 18 * T, w: 2 * T, h: 4 * T };
 } else buildFunctionStage();
 const FLOOR_Y = 22 * T;
 const RX0 = (ROOM.x0 + 2) * T, RX1 = (ROOM.x1 - 1) * T;   // Boss 房内部左右边界（像素）
@@ -847,6 +853,7 @@ function noise(dur, vol, freq) {
 }
 const SFX = {
   jump: () => tone('square', 260, 560, 0.09, 0.045),
+  jump2: () => { tone('triangle', 420, 900, 0.1, 0.05); noise(0.08, 0.06, 5000); },
   wall: () => { tone('square', 340, 760, 0.09, 0.045); noise(0.05, 0.08, 3000); },
   land: () => noise(0.07, 0.14, 500),
   shoot: () => tone('square', 1100, 480, 0.05, 0.03),
@@ -1202,7 +1209,7 @@ function makePlayer(x, y) {
     x, y, px: x, py: y, w: 12, h: 28, vx: 0, vy: 0,
     onGround: false, facing: 1, coyote: 0, jumpBuf: 0, dashBuf: 0, shootBuf: 0, jumping: false,
     dashing: 0, dashDir: 1, dashJump: false, airDash: 1, wallDir: 0, wallSliding: false, wallLock: 0,
-    drop: 0, jumpT: 0, ceil: false, curve: null, curveVy: 0, hp: MAXHP, iframes: 0, hurt: 0, dead: false,
+    drop: 0, jumpT: 0, airJumps: 1, spinT: 0, ceil: false, curve: null, curveVy: 0, hp: MAXHP, iframes: 0, hurt: 0, dead: false,
     charge: 0, charging: false, chargeLvl: 0, shootPose: 0,
     sx: 1, sy: 1, lean: 0, dustT: 0, ghostT: 0, slideT: 0, inWater: false, bubT: 0, runPhase: 0,
   };
@@ -1271,7 +1278,7 @@ function updatePlayer(dt) {
   const p = player;
   if (p.dead) return;
   p.coyote -= dt; p.jumpBuf -= dt; p.dashBuf -= dt; p.shootBuf -= dt;
-  p.iframes -= dt; p.wallLock -= dt; p.drop -= dt; p.shootPose -= dt;
+  p.iframes -= dt; p.wallLock -= dt; p.drop -= dt; p.shootPose -= dt; p.spinT -= dt;
   if (p.hurt > 0) p.hurt -= dt;
   const ctrl = p.hurt <= 0 && boss.state !== 'intro';
 
@@ -1338,10 +1345,22 @@ function updatePlayer(dt) {
       p.vx = d * (dashJ ? P.dashSpeed : P.wallJumpX);
       p.vy = -jumpVel(P.wallJumpHeight) * (p.inWater ? 0.75 : 1);
       p.dashJump = dashJ; p.jumping = true; p.jumpT = 0; p.jumpBuf = 0; p.dashing = 0;
-      p.wallLock = P.wallLock; p.facing = d; p.airDash = 1;
+      p.wallLock = P.wallLock; p.facing = d; p.airDash = 1; p.airJumps = P.airJumps;
       p.sx = 0.75; p.sy = 1.25;
       sfx('wall');
       puff(p.wallDir > 0 ? p.x + p.w : p.x, p.y + p.h * 0.6, 6, { angle: d > 0 ? 0 : Math.PI, spread: 0.9, smin: 30, smax: 90, color: '#b0b6c0' });
+    } else if (p.airJumps > 0) {
+      // 二段跳：可以在空中改变方向，保留水平惯性
+      p.airJumps--;
+      p.vy = -jumpVel(P.doubleJumpHeight) * (p.inWater ? 0.75 : 1);
+      if (ix && sign(p.vx) !== ix) p.vx = ix * P.runSpeed * 0.6;
+      p.jumping = true; p.jumpT = 0; p.jumpBuf = 0; p.dashing = 0;
+      p.sx = 0.8; p.sy = 1.25; p.spinT = 0.3;
+      sfx('jump2');
+      for (let k = 0; k < 10; k++) {
+        const a = k / 10 * Math.PI * 2;
+        particles.push({ x: p.x + p.w / 2, y: p.y + p.h, px: 0, py: 0, vx: Math.cos(a) * 70, vy: Math.sin(a) * 18, life: 0.25, max: 0.25, size: 1.8, color: '#9fe8ff', grav: 0, drag: 5 });
+      }
     }
   }
 
@@ -1384,7 +1403,7 @@ function updatePlayer(dt) {
   p.wallSliding = !p.onGround && touchingWall && ix === p.wallDir && p.vy > 0 && p.dashing <= 0;
   if (p.wallSliding) {
     p.dashJump = false;
-    p.airDash = 1;
+    p.airDash = 1; p.airJumps = P.airJumps;
     p.dustT -= dt;
     if (p.dustT <= 0) {
       p.dustT = 0.06;
@@ -1425,7 +1444,7 @@ function updatePlayer(dt) {
     p.jumping = false;
     if (p.ceil) { /* 倒挂行走中，正常贴合 */ }
     else if (magOn && magneticAbove(p)) {
-      p.ceil = true; p.vy = 0; p.dashJump = false; p.airDash = 1;
+      p.ceil = true; p.vy = 0; p.dashJump = false; p.airDash = 1; p.airJumps = P.airJumps;
       p.sx = 1.3; p.sy = 0.7; sfx('clank'); addShake(0.08);
       puff(p.x + p.w / 2, p.y, 6, { angle: Math.PI / 2, spread: 1.2, color: '#ff9c45', smin: 30, smax: 90 });
     } else { sfx('bonk'); puff(p.x + p.w / 2, p.y, 3, { angle: Math.PI / 2, spread: 1, color: '#b0b6c0' }); }
@@ -1436,7 +1455,7 @@ function updatePlayer(dt) {
   playerCurves(p, dt, prevBottom, prevFx);
   if (p.onGround) {
     p.coyote = p.ceil ? 0 : P.coyote;
-    p.airDash = 1;
+    p.airDash = 1; p.airJumps = P.airJumps;
     if (!wasGround) {
       // 落地：按冲击速度挤压
       const k = clamp(fallVy / 480, 0.15, 1);
@@ -2800,11 +2819,11 @@ function heroFrame(p) {
   if (Math.abs(p.vx) > 20) return 2 + (Math.floor(p.runPhase) % 6);
   return Math.floor(time * 1.6) % 2 ? 1 : 0;
 }
-function drawHeroSprite(tint, fr, x, y, face, sx, sy, rot) {
+function drawHeroSprite(tint, fr, x, y, face, sx, sy, rot, centered = false) {
   ctx.save();
   ctx.translate(x, y); ctx.rotate(rot); ctx.scale(sx * face, sy);
   ctx.imageSmoothingEnabled = false;
-  ctx.drawImage(tint, fr * 32, 0, 32, 32, -14, -31, 32, 32);   // 锚点：脚底中心
+  ctx.drawImage(tint, fr * 32, 0, 32, 32, -14, centered ? -17 : -31, 32, 32);   // 锚点：脚底中心（空翻时绕身体中心旋转）
   ctx.restore();
 }
 function drawPlayer(a) {
@@ -2822,6 +2841,7 @@ function drawPlayer(a) {
   if (p.chargeLvl > 0 && Math.floor(time * (p.chargeLvl === 2 ? 30 : 18)) % 2) tint = p.chargeLvl === 2 ? heroTints.yellow : heroTints.cyan;
   if (p.hurt > 0 && Math.floor(time * 30) % 2) tint = heroTints.white;
   if (p.ceil) drawHeroSprite(tint, heroFrame(p), x, lerp(p.py, p.y, a), face, p.sx, -p.sy, -p.lean);
+  else if (p.spinT > 0) drawHeroSprite(tint, 8, x, y - p.h / 2 + 1, face, p.sx, p.sy, p.lean + (1 - p.spinT / 0.3) * Math.PI * 2 * face, true);
   else drawHeroSprite(tint, heroFrame(p), x, y, face, p.sx, p.sy, p.lean);
 }
 
