@@ -16,6 +16,7 @@
   #panel .grp{color:#9aa;margin:10px 0 2px;border-top:1px solid #333;padding-top:6px}
   #panel .btns{display:flex;gap:6px;margin-top:10px}
   #panel button{flex:1;background:#2b2f3a;color:#ddd;border:1px solid #4a4f5c;border-radius:5px;padding:6px;cursor:pointer}
+  #panel button.cur{border-color:#4fc3f7;color:#fff;background:#203048}
   #panel button:hover{background:#363b48}
   #start{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(10,10,14,.72);z-index:6;cursor:pointer}
   #start .box{text-align:center;max-width:520px;padding:20px}
@@ -24,6 +25,7 @@
   #start .k{display:inline-block;background:#2b2f3a;border:1px solid #4a4f5c;border-radius:4px;padding:0 6px;margin:0 2px;color:#fff;font-size:12px}
   #start .stages{display:flex;gap:10px;justify-content:center;margin:10px 0 14px}
   #start .stages button{background:#1b1f2b;color:#aab;border:1px solid #3a4050;border-radius:6px;padding:8px 14px;font-size:14px;cursor:pointer}
+  #start .dnote{color:#8fd3ff;font-size:13px;margin:0 0 6px;min-height:18px}
   #start .stages button.cur{border-color:#4fc3f7;color:#fff;background:#203048}
   #start .go{margin-top:16px;color:#4fc3f7;font-size:16px;animation:bl 1.2s infinite}
   @keyframes bl{50%{opacity:.35}}
@@ -51,8 +53,10 @@
 </div>
 <div id="start"><div class="box">
   <h1>回路残响</h1>
+  <div class="stages diffs"><button data-d="easy">轻松</button><button data-d="normal">普通</button><button data-d="hard">困难</button></div>
+  <p class="dnote" id="dnote"></p>
   <div class="stages"><button data-s="frost">第一关 · 冰封钟楼</button><button data-s="function">第二关 · 坐标荒原</button></div>
-  <p>移动 <span class="k">←→</span>/<span class="k">A D</span>　跳跃 <span class="k">Z</span>/<span class="k">K</span>/<span class="k">空格</span>（长按跳得更高）</p>
+  <p>移动 <span class="k">←→</span>/<span class="k">A D</span>　跳跃 <span class="k">Z</span>/<span class="k">K</span>/<span class="k">空格</span>（长按跳得更高，空中再按一次 = 二段跳）</p>
   <p>射击 <span class="k">X</span>/<span class="k">J</span>（长按蓄力）　冲刺 <span class="k">C</span>/<span class="k">L</span>/<span class="k">Shift</span></p>
   <p>贴墙按跳 = 蹬墙跳　冲刺中起跳 = 冲刺跳（保留速度）　<span class="k">↓</span>+跳 = 穿过薄平台</p>
   <p>打败 Boss 拿芯片：<span class="k">Q</span> 霜钟（水 ⇄ 冰）　<span class="k">E</span> 磁暴（吸附金属倒着走）</p>
@@ -340,7 +344,7 @@ function updateBoss3(dt) {
   if (b.morph < 1) b.morph = Math.min(1, b.morph + dt / 0.6);
   const pcx = p.x + p.w / 2, pcy = p.y + p.h / 2;
   b.face = sign(pcx - b.x) || b.face;
-  const hoverX = r.cx + 120 * Math.sin(b.t * 0.55), hoverY = 13.5 * T + 22 * Math.sin(b.t * 1.1);   // 跳起来能打到
+  const hoverX = r.cx + 90 * Math.sin(b.t * 0.45), hoverY = 14.5 * T + 16 * Math.sin(b.t * 1.1);   // 跳起来能打到
   if (b.state === 'intro') {
     b.timer -= dt;
     b.x = lerp(b.x, r.cx, 1 - Math.exp(-dt * 3)); b.y = lerp(b.y, 13 * T, 1 - Math.exp(-dt * 3));
@@ -366,11 +370,11 @@ function updateBoss3(dt) {
   // 重新定义地板
   if (b.preview > 0) {
     b.preview -= dt;
-    if (b.preview <= 0) { b.prevFn = b.fn; b.fn = b.next; b.next = null; b.morph = 0; b.fnTimer = P2 ? 4.5 : 6; sfx('magOn'); addShake(0.15); }
+    if (b.preview <= 0) { b.prevFn = b.fn; b.fn = b.next; b.next = null; b.morph = 0; b.fnTimer = P2 ? 5.5 : 7; sfx('magOn'); addShake(0.15); }
   } else if ((b.fnTimer -= dt) <= 0 && b.state === 'fight') nextFunction();
   if (b.state === 'fight') {
     b.x = lerp(b.x, hoverX, 1 - Math.exp(-dt * 2.5)); b.y = lerp(b.y, hoverY, 1 - Math.exp(-dt * 2.5));
-    if ((b.atkTimer -= dt) <= 0) { b.atkTimer = P2 ? 1.25 : 1.8; attack3(ATK[b.fn], P2); }
+    if ((b.atkTimer -= dt) <= 0) { b.atkTimer = P2 ? 1.7 : 2.4; attack3(ATK[b.fn], P2); }
   } else if (b.state === 'diveWarn') {
     b.timer -= dt; if (b.timer <= 0) { b.state = 'dive'; b.timer = 0; sfx('dash'); }
   } else if (b.state === 'dive') {
@@ -391,10 +395,10 @@ function attack3(kind, P2) {
     sfx('shoot1');
   } else if (kind === 'laser') {
     const a = Math.atan2(pcy - b.y, pcx - b.x);
-    b3Proj.push({ kind: 'laser', ang: a - (P2 ? 0.5 : 0.35), spin: P2 ? 1.1 : 0.8, warn: 0.75, act: 0.6, life: 2 });
+    b3Proj.push({ kind: 'laser', ang: a - (P2 ? 0.5 : 0.35), spin: P2 ? 1.0 : 0.7, warn: 0.9, act: 0.5, life: 2 });
     sfx('charged');
   } else if (kind === 'lob') {
-    for (const off of P2 ? [-56, -18, 18, 56] : [-40, 0, 40]) {
+    for (const off of P2 ? [-48, 0, 48] : [-24, 24]) {
       const tx = clamp(pcx + off, B3().x0 + 8, B3().x1 - 8), ty = arenaY(tx), Tt = 1.1, g = 600;
       const vx = (tx - b.x) / Tt, vy = (ty - b.y - 0.5 * g * Tt * Tt) / Tt;
       b3Proj.push({ kind: 'lob', x: b.x, y: b.y, px: b.x, py: b.y, vx, vy, g, life: 3 });
@@ -406,7 +410,7 @@ function attack3(kind, P2) {
     b.state = 'diveWarn'; b.timer = 0.6; b.pose = 2; b.poseT = 1.8;
   } else if (kind === 'blocks') {
     const r = B3();
-    for (const k of P2 ? [-2, -1, 0, 1, 2] : [-1, 0, 1]) {
+    for (const k of P2 ? [-1, 0, 1] : [0, 1]) {
       const col = Math.floor((pcx - r.cx) / 48 + k) * 48 + r.cx + 24;
       if (col < r.x0 || col > r.x1) continue;
       b3Proj.push({ kind: 'block', x: col, y: ROOM3.top * T + 4, px: col, py: ROOM3.top * T + 4, vy: 0, warn: 0.8 + Math.abs(k) * 0.08, life: 4 });
@@ -416,7 +420,7 @@ function attack3(kind, P2) {
 }
 function damageBoss3(dmg, dir) {
   const b = boss3;
-  b.hp -= dmg; b.inv = 0.3; b.flash = 0.1; b.sq = 1.15;
+  b.hp -= dmg; b.inv = DIFF.inv * DIFF.bossSpeed; b.flash = 0.1; b.sq = 1.15; bossHalfDrop(b);
   hitstop(dmg >= 4 ? 0.06 : 0.03); sfx('hit'); addShake(dmg >= 4 ? 0.22 : 0.06);
   puff(b.x - dir * 16, b.y, 6, { angle: dir > 0 ? Math.PI : 0, spread: 0.9, color: '#fff59d', smin: 40, smax: 160, lmin: 0.1, lmax: 0.25 });
   if (b.hp <= 0) { b.hp = 0; b.state = 'dying'; b.timer = 1.6; b.boomT = 0; b3Proj = []; hitstop(0.25); addShake(0.6); }
@@ -436,7 +440,7 @@ function updateB3Proj(dt) {
       if (q.act <= 0) { q.life = 0; continue; }
       const dx = p.x + p.w / 2 - boss3.x, dy = p.y + p.h / 2 - boss3.y, along = dx * Math.cos(q.ang) + dy * Math.sin(q.ang);
       const perp = Math.abs(-dx * Math.sin(q.ang) + dy * Math.cos(q.ang));
-      if (!p.dead && along > 0 && perp < 8) hurtPlayer(3, boss3.x);
+      if (!p.dead && along > 0 && perp < 6) hurtPlayer(2, boss3.x);
     } else if (q.kind === 'lob') {
       q.vy += q.g * dt; q.x += q.vx * dt; q.y += q.vy * dt;
       if (q.vy > 0 && q.x > r.x0 && q.x < r.x1 && q.y >= arenaY(q.x)) {
@@ -447,7 +451,7 @@ function updateB3Proj(dt) {
       if (q.warn > 0) { q.warn -= dt; continue; }
       q.vy = Math.min(q.vy + 1100 * dt, 600); q.y += q.vy * dt;
       if (q.y + 10 >= arenaY(q.x)) { q.life = 0; puff(q.x, q.y + 8, 10, { color: '#9b8cff', smin: 40, smax: 140, grav: 300 }); sfx('hit'); addShake(0.1); }
-      if (!p.dead && overlap(p, { x: q.x - 10, y: q.y - 10, w: 20, h: 20 })) { hurtPlayer(3, q.x); q.life = 0; }
+      if (!p.dead && overlap(p, { x: q.x - 10, y: q.y - 10, w: 20, h: 20 })) { hurtPlayer(2, q.x); q.life = 0; }
     }
   }
   b3Proj = b3Proj.filter(q => q.life > 0);
@@ -1199,7 +1203,72 @@ let player, enemies = [], bullets = [], ebullets = [], particles = [], ghosts = 
 let cam = { x: 0, y: 0, px: 0, py: 0, lookX: 0 };
 let hitstopT = 0, shakeT = 0, time = 0, runTime = 0, deathT = 0;
 let checkpoint = 0, goalReached = false, goalTime = 0, showHint = true;
-const BOSS_MAXHP = 28;
+// ---- 难度 ----
+const DIFFS = {
+  easy:   { name: '轻松', dmg: 0.5,  bossHp: 0.6, bossSpeed: 0.75, drop: 0.4, iframes: 1.5, pit: 2, inv: 0.15,
+            note: '受到伤害减半 · Boss 血量 60%、动作慢 25% · 小怪常掉回血胶囊' },
+  normal: { name: '普通', dmg: 0.75, bossHp: 0.8, bossSpeed: 0.88, drop: 0.2, iframes: 1.2, pit: 3, inv: 0.22,
+            note: '受到伤害 ×0.75 · Boss 血量 80%、动作慢 12% · 小怪偶尔掉回血胶囊' },
+  hard:   { name: '困难', dmg: 1,    bossHp: 1,   bossSpeed: 1,    drop: 0,   iframes: 1.0, pit: 4, inv: 0.3,
+            note: '原版数值 · 没有回血胶囊' },
+};
+let diffKey = 'normal';
+try { diffKey = localStorage.getItem('ec_diff') || 'normal'; } catch (e) {}
+if (!DIFFS[diffKey]) diffKey = 'normal';
+let DIFF = DIFFS[diffKey];
+let BOSS_MAXHP = Math.round(28 * DIFF.bossHp);
+function setDifficulty(k) {
+  diffKey = k; DIFF = DIFFS[k]; BOSS_MAXHP = Math.round(28 * DIFF.bossHp);
+  try { localStorage.setItem('ec_diff', k); } catch (e) {}
+  restartAll();
+  document.querySelectorAll('[data-d]').forEach(b => b.classList.toggle('cur', b.dataset.d === k));
+  const n = document.getElementById('dnote'); if (n) n.textContent = DIFF.note;
+}
+// ---- 回血胶囊 ----
+let pickups = [];
+function dropHealth(x, y, big = false) { pickups.push({ x: x - 4, y: y - 4, w: 8, h: 8, vy: -170, life: 10, big, t: 0, drop: 0, curve: null }); }
+function updatePickups(dt) {
+  const p = player;
+  for (const q of pickups) {
+    q.t += dt; q.life -= dt;
+    if (q.curve) {
+      const fx = q.x + 4;
+      if (fx < q.curve.x0 || fx > q.curve.x1) q.curve = null; else { q.y = q.curve.f(fx, curveT) - q.h; q.vy = 0; }
+    } else {
+      q.vy = Math.min(q.vy + 900 * dt, 400);
+      const prevB = q.y + q.h;
+      if (moveY(q, q.vy * dt) === 'floor') q.vy = 0;
+      if (q.vy > 0) for (const c of curves) {
+        const fx = q.x + 4;
+        if (fx < c.x0 || fx > c.x1 || !curveSolid(c)) continue;
+        const cy = c.f(fx, curveT);
+        if (prevB <= cy + 2 && q.y + q.h >= cy) { q.curve = c; q.y = cy - q.h; q.vy = 0; break; }
+      }
+    }
+    if (!p.dead && overlap(p, q)) {
+      p.hp = Math.min(MAXHP, p.hp + (q.big ? 8 : 4)); q.life = 0;
+      sfx('charged'); puff(q.x + 4, q.y + 4, 10, { color: '#fff59d', smin: 30, smax: 90 });
+    }
+  }
+  pickups = pickups.filter(q => q.life > 0 && q.y < H * T + 40);
+}
+function drawPickups() {
+  for (const q of pickups) {
+    if (q.life < 2 && Math.floor(time * 12) % 2) continue;
+    const bob = q.vy === 0 ? Math.sin(q.t * 5) : 0, s = q.big ? 1.4 : 1;
+    ctx.save(); ctx.translate(q.x + 4, q.y + 4 + bob); ctx.scale(s, s);
+    ctx.fillStyle = '#0a101c'; ctx.fillRect(-4, -4, 8, 8);
+    ctx.fillStyle = '#ff5a5a'; ctx.fillRect(-3, -3, 6, 3);
+    ctx.fillStyle = '#fff59d'; ctx.fillRect(-3, 0, 6, 3);
+    ctx.fillStyle = '#ffffff'; ctx.fillRect(-2, -2, 1, 1);
+    ctx.restore();
+  }
+}
+function bossHalfDrop(b) {            // 轻松/普通：Boss 血量过半时掉一个大回血胶囊
+  if (b.halfDrop || DIFF.drop <= 0 || b.hp > BOSS_MAXHP / 2 || b.hp <= 0) return;
+  b.halfDrop = true;
+  dropHealth(player.x + player.w / 2 - player.facing * 30, player.y - 30, true);
+}
 let boss = null, bossProj = [], chipItem = null, chipOwned = false, chipOn = false;
 let bossFreezeT = 0, pendingToggle = false, msg = null, flashT = 0, freezeWave = null;
 let magOwned = false, magOn = false, pendingMag = false;
@@ -1239,7 +1308,7 @@ function respawn(full) {
   player = makePlayer(c.x, c.y - 28);
   player.hp = hp; player.iframes = 0.6;
   enemies = spawns.map(s => makeEnemy(...s));
-  bullets = []; ebullets = []; ghosts = [];
+  bullets = []; ebullets = []; ghosts = []; pickups = [];
   deathT = 0;
   resetBoss();
   resetBoss2();
@@ -1507,14 +1576,14 @@ function updatePlayer(dt) {
 
   // ---- 函数怪竞技场：掉进“未定义区” ----
   if (STAGE === 'function' && boss3 && boss3.state !== 'none' && boss3.state !== 'dead' && p.y > 22 * T + 10 && p.x > ROOM3.x0 * T && p.x < ROOM3.x1 * T) {
-    p.hp -= 3; sfx('hurt'); addShake(0.4);
+    p.hp -= Math.max(1, Math.round(3 * DIFF.dmg)); sfx('hurt'); addShake(0.4);
     if (p.hp <= 0) { killPlayer(); return; }
     p.x = B3().cx - p.w / 2; p.y = 9 * T; p.px = p.x; p.py = p.y; p.vx = 0; p.vy = 0; p.iframes = 1; p.curve = null;
     showMsg('ƒ(x) 在这里未定义', '', 1);
   }
   // ---- 掉坑 ----
   if (p.y > H * T + 40) {
-    p.hp -= 4;
+    p.hp -= DIFF.pit;
     sfx('hurt'); addShake(0.4);
     if (p.hp <= 0) { killPlayer(); return; }
     const c = checkpoints[checkpoint];
@@ -1557,8 +1626,9 @@ function fire(lvl) {
 function hurtPlayer(dmg, srcX) {
   const p = player;
   if (p.iframes > 0 || p.dead) return;
+  dmg = Math.max(1, Math.round(dmg * DIFF.dmg));
   p.hp -= dmg;
-  p.iframes = 1.0; p.hurt = 0.3; p.ceil = false; p.curve = null;
+  p.iframes = DIFF.iframes; p.hurt = 0.3; p.ceil = false; p.curve = null;
   p.dashing = 0; p.dashJump = false; p.charging = false; p.charge = 0; p.chargeLvl = 0;
   const dir = (p.x + p.w / 2) < srcX ? -1 : 1;
   p.vx = dir * 130; p.vy = -220; p.onGround = false;
@@ -1646,6 +1716,7 @@ function damageEnemy(e, dmg, dirX) {
   const cx = e.x + e.w / 2, cy = e.y + e.h / 2;
   if (e.hp <= 0) {
     e.alive = false; e.respawn = 3;
+    if (Math.random() < DIFF.drop) dropHealth(cx, cy);
     hitstop(0.06); addShake(0.22); sfx('kill');
     puff(cx, cy, 14, { color: '#ffffff', smin: 60, smax: 220, lmin: 0.15, lmax: 0.4, drag: 5, zmin: 1.5, zmax: 3 });
     puff(cx, cy, 10, { color: ENEMY_COL[e.type], smin: 40, smax: 160, lmin: 0.3, lmax: 0.6, grav: 300, drag: 1.5, zmin: 2, zmax: 4 });
@@ -1874,7 +1945,7 @@ function spawnIcicles(n) {
 }
 function damageBoss(dmg, dir) {
   const b = boss;
-  b.hp -= dmg; b.inv = 0.3; b.flash = 0.1; b.sq = 1.15;
+  b.hp -= dmg; b.inv = DIFF.inv * DIFF.bossSpeed; b.flash = 0.1; b.sq = 1.15; bossHalfDrop(b);
   hitstop(dmg >= 4 ? 0.06 : 0.03); sfx('hit'); addShake(dmg >= 4 ? 0.22 : 0.06);
   puff(b.x - dir * 20, b.y - 24, 6, { angle: dir > 0 ? Math.PI : 0, spread: 0.9, color: '#fff59d', smin: 40, smax: 160, lmin: 0.1, lmax: 0.25 });
   if (b.hp <= 0) {
@@ -2218,7 +2289,7 @@ function updateBoss2(dt) {
 }
 function damageBoss2(dmg, dir) {
   const b = boss2;
-  b.hp -= dmg; b.inv = 0.3; b.flash = 0.1; b.sq = 1.15;
+  b.hp -= dmg; b.inv = DIFF.inv * DIFF.bossSpeed; b.flash = 0.1; b.sq = 1.15; bossHalfDrop(b);
   hitstop(dmg >= 4 ? 0.06 : 0.03); sfx('hit'); addShake(dmg >= 4 ? 0.22 : 0.06);
   const bb = box2(b);
   puff(b.x - dir * 12, bb.y + bb.h / 2, 6, { angle: dir > 0 ? Math.PI : 0, spread: 0.9, color: '#fff59d', smin: 40, smax: 160, lmin: 0.1, lmax: 0.25 });
@@ -2349,7 +2420,7 @@ function updateBullets(dt) {
       }
     }
     if (b.life > 0 && STAGE === 'function' && boss3Fighting() && !b.hits.has(boss3)) {
-      if (Math.abs(b.x - boss3.x) < 14 + b.r && b.y + b.r > boss3.y - 26 && b.y - b.r < boss3.y + 24) {
+      if (Math.abs(b.x - boss3.x) < 18 + b.r && b.y + b.r > boss3.y - 28 && b.y - b.r < boss3.y + 30) {
         if (boss3.inv > 0) { b.deflected = true; b.vx = -b.vx * 0.5; b.vy = -240; b.life = 0.4; sfx('ding'); }
         else { b.hits.add(boss3); damageBoss3(b.dmg, sign(b.vx)); if (!b.pierce) b.life = 0; }
       }
@@ -2482,16 +2553,17 @@ function step(dt) {
   updateCurves(dt);
   updatePlayer(dt);
   for (const e of enemies) updateEnemy(e, dt);
-  updateBoss(dt);
-  updateBossProj(dt);
+  updateBoss(dt * DIFF.bossSpeed);
+  updateBossProj(dt * DIFF.bossSpeed);
   updateChipItem(dt);
-  updateBoss2(dt);
-  updateB2Proj(dt);
+  updateBoss2(dt * DIFF.bossSpeed);
+  updateB2Proj(dt * DIFF.bossSpeed);
   updateMagItem(dt);
-  updateBoss3(dt);
-  updateB3Proj(dt);
+  updateBoss3(dt * DIFF.bossSpeed);
+  updateB3Proj(dt * DIFF.bossSpeed);
   updateFuncItem(dt);
   updateBullets(dt);
+  updatePickups(dt);
   updateParticles(dt);
   if (p.dead) {
     deathT -= dt;
@@ -3008,6 +3080,7 @@ function drawHUD(fps) {
   ctx.fillStyle = '#c9ced8';
   const vw = viewW;
   ctx.fillText(`TIME ${runTime.toFixed(2)}`, vw - 8, 14);
+  ctx.fillStyle = '#7a8090'; ctx.fillText(`难度 ${DIFF.name}`, vw - 8, 42);
   ctx.fillStyle = '#7a8090';
   ctx.fillText(`速度 ${Math.abs(p.vx).toFixed(0).padStart(3)}  ${fps}fps`, vw - 8, 24);
   const st = p.dead ? '' : p.dashing > 0 ? '冲刺' : p.wallSliding ? '滑墙' : p.dashJump ? '冲刺跳' : !p.onGround ? '空中' : Math.abs(p.vx) > 5 ? '奔跑' : '站立';
@@ -3084,6 +3157,7 @@ function render(a, rdt) {
   drawB2Proj(a);
   drawB3Proj(a);
   drawWater(cx, cy);
+  drawPickups();
   drawParticles();
   drawSnow(cx, cy, rdt);
   drawHUD(fpsShow);
@@ -3114,6 +3188,7 @@ const panel = document.getElementById('panel');
 const fmt = v => (Math.abs(v) < 10 && v % 1 !== 0) ? (+v).toFixed(2) : String(Math.round(v * 100) / 100);
 function buildPanel() {
   let html = '<h3>手感调参<small>Tab 关闭 · 实时生效</small></h3>';
+  html += '<div class="grp">难度（切换后从头开始）</div><div class="btns">' + Object.entries(DIFFS).map(([k, d]) => `<button data-d="${k}" class="${k === diffKey ? 'cur' : ''}">${d.name}</button>`).join('') + '</div>';
   for (const d of PARAM_DEFS) {
     if (d[0] === 'g') { html += `<div class="grp">${d[1]}</div>`; continue; }
     const [k, label, min, max, st] = d;
@@ -3121,6 +3196,7 @@ function buildPanel() {
   }
   html += '<div class="btns"><button id="bReset">恢复默认</button><button id="bCopy">复制参数 JSON</button></div>';
   panel.innerHTML = html;
+  panel.querySelectorAll('[data-d]').forEach(b => b.onclick = () => { setDifficulty(b.dataset.d); buildPanel(); });
   panel.querySelectorAll('input').forEach(inp => inp.addEventListener('input', () => {
     const k = inp.dataset.k;
     P[k] = parseFloat(inp.value);
@@ -3156,7 +3232,12 @@ function hideStart() {
   if (startEl.style.display !== 'none') startEl.style.display = 'none';
 }
 startEl.addEventListener('pointerdown', hideStart);
-document.querySelectorAll('#start .stages button').forEach(btn => {
+document.querySelectorAll('#start [data-d]').forEach(btn => {
+  btn.classList.toggle('cur', btn.dataset.d === diffKey);
+  btn.addEventListener('pointerdown', e => { e.stopPropagation(); setDifficulty(btn.dataset.d); });
+});
+document.getElementById('dnote').textContent = DIFF.note;
+document.querySelectorAll('#start [data-s]').forEach(btn => {
   if (btn.dataset.s === STAGE) btn.classList.add('cur');
   btn.addEventListener('pointerdown', e => {
     e.stopPropagation();
